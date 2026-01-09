@@ -183,7 +183,7 @@ server <- function(input, output, session){
 
   
   # --- SARA species set ---
-  sara_set <- reactive(unique(na.omit(SARA_Clean$Scientific.Name)))
+  sara_set <- reactive(unique(na.omit(SARA$Scientific.Name)))
   
   # --- AIS species set ---
   ais_set  <- reactive(unique(na.omit(AIS$Scientific.Name)))   # adjust column if needed
@@ -257,7 +257,7 @@ server <- function(input, output, session){
     # 2) join Rating + Common name (adjust Common.Name to your real column)
     det2 <- det %>%
       dplyr::left_join(
-        SARA_Clean %>% dplyr::select(
+        SARA %>% dplyr::select(
           Scientific.Name,
           Common.Name,
           Rating
