@@ -41,13 +41,62 @@ ui <- fluidPage(
       h4("Group"),
       div(
         class = "filter-btn-grid",
-        actionButton("total_fish", "Fishes", class = "btn btn-default filter-btn"),
-        actionButton("total_mammals", "Mammals", class = "btn btn-default filter-btn"),
-        actionButton("total_reptiles", "Reptiles", class = "btn btn-default filter-btn"),
-        actionButton("total_birds", "Birds", class = "btn btn-default filter-btn"),
-        actionButton("total_molluscs", "Molluscs", class = "btn btn-default filter-btn"),
-        actionButton("total_arthropods", "Arthropods", class = "btn btn-default filter-btn"),
-        actionButton("total_plants", "Plants", class = "btn btn-default filter-btn"),
+        actionButton(
+          "total_fish",
+          label = tagList(
+            tags$img(src = "img/fish.png", height = "28px"),
+            tags$span("Fishes")
+          ),
+          class = "btn btn-default filter-btn"
+        ),
+        actionButton(
+          "total_mammals",
+          label = tagList(
+            tags$img(src = "img/whale2.png", height = "28px"),
+            tags$span("Mammals")
+          ),
+          class = "btn btn-default filter-btn"
+        ),
+        actionButton(
+          "total_arthropods", 
+          label = tagList(
+            tags$img(src = "img/lobster.png", height = "28px"),
+            tags$span("Arthropods")
+          ),
+          class = "btn btn-default filter-btn"
+        ),
+        actionButton(
+          "total_reptiles",
+          label = tagList(
+            tags$img(src = "img/turtle.png", height = "28px"),
+            tags$span("Reptiles")
+          ),
+          class = "btn btn-default filter-btn"
+        ),
+        actionButton(
+          "total_birds",
+          label = tagList(
+            tags$img(src = "img/bird.png", height = "28px"),
+            tags$span("Birds")
+          ),
+          class = "btn btn-default filter-btn"
+        ), 
+        actionButton(
+          "total_molluscs",
+          label = tagList(
+            tags$img(src = "img/mollusc.png", height = "28px"),
+            tags$span("Molluscs")
+          ),
+          class = "btn btn-default filter-btn"
+        ), 
+        actionButton(
+          "total_plants",
+          label = tagList(
+            tags$img(src = "img/plant.png", height = "28px"),
+            tags$span("Plants")
+          ),
+          class = "btn btn-default filter-btn"
+        ),         
         actionButton("SARA", "SARA", class = "btn btn-default filter-btn"),
         actionButton("AIS", "AIS", class = "btn btn-default filter-btn")
       ),
