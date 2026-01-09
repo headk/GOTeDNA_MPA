@@ -58,15 +58,17 @@ all_polys_click <- all_polys %>%
 
 #-----------------------------------------------------------------------------
 #TEMPORARY CODE UNTIL WE HAVE ACCESS TO THE DDD EXTENSION FROM OBIS!!!
-read_csv_files <- function(...) {
-  st_read(file.path("data", "temporary_occurrence", ...))
+read_occ_csv <- function(...) {
+  read_csv(file.path("data", "temporary_occurrence", ...),
+  show_col_types = FALSE
+  )
 }
 
-SABGULFUN_24_COI <- read_csv_files("OBIS_MCT_SABGULFUN2024_COI_occurrence.csv")
-SABGULFUN_24_12S <- read_csv_files("OBIS_MCT_SABGULFUN2024_12S_occurrence.csv")
-MUSQ16_12S <- read_csv_files("OBIS_MCT_Musq16_occurrence_FORMAP_notcomplete.csv")
-MUSQ20_12S <- read_csv_files("OBIS_MCT_Musq20_occurrence_FORMAP_notcomplete.csv")
-MUSQ24_12S <- read_csv_files("OBIS_MCT_Musq24_occurrence_FORMAP_notcomplete.csv")
+SABGULFUN_24_COI <- read_occ_csv("OBIS_MCT_SABGULFUN2024_COI_occurrence.csv")
+SABGULFUN_24_12S <- read_occ_csv("OBIS_MCT_SABGULFUN2024_12S_occurrence.csv")
+MUSQ16_12S <- read_occ_csv("OBIS_MCT_Musq16_occurrence_FORMAP_notcomplete.csv")
+MUSQ20_12S <- read_occ_csv("OBIS_MCT_Musq20_occurrence_FORMAP_notcomplete.csv")
+MUSQ24_12S <- read_occ_csv("OBIS_MCT_Musq24_occurrence_FORMAP_notcomplete.csv")
 
 SABGULFUN_24_COI <- SABGULFUN_24_COI %>%
   mutate(
