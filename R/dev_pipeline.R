@@ -10,20 +10,17 @@ mpa_targets <- read_poly_wgs84("mpa_targets.shp")
 esi_poly    <- read_poly_wgs84("EasternShoreIslands_networksite.shp")
 fcbb_poly   <- read_poly_wgs84("FCBB_Proposed_MPA_Boundary_zones.shp")
 
-######################################################################################################################
-
 #Combine all polygons into one sf object
-
-# Add a common name/type to each polygon set
-mpa_polys <- mpa_targets_wgs %>%
+#Add a common name/type to each polygon set
+mpa_polys <- mpa_targets %>%
   st_geometry() %>%                     # keep just geometry
   st_as_sf() %>%                        # convert back to sf
   mutate(
-    site_name = mpa_targets_wgs$NAME_E,
+    site_name = mpa_targets$NAME_E,
     site_type = "MPA"
   )
 
-esi_polys <- esi_poly_wgs %>%
+esi_polys <- esi_poly %>%
   st_geometry() %>%
   st_as_sf() %>%
   mutate(
@@ -31,7 +28,7 @@ esi_polys <- esi_poly_wgs %>%
     site_type = "AOI"
   )
 
-fcbb_polys <- fcbb_poly_wgs %>%
+fcbb_polys <- fcbb_poly %>%
   st_geometry() %>%
   st_as_sf() %>%
   mutate(
@@ -39,19 +36,17 @@ fcbb_polys <- fcbb_poly_wgs %>%
     site_type = "AOI"
   )
 
-# Bind everything together
+#Bind everything together
 all_polys <- bind_rows(
   mpa_polys,
   esi_polys,
   fcbb_polys
 )
 
-# Ensure it's still sf
+#Ensure it's still sf
 all_polys <- st_as_sf(all_polys)
 
-all_polys
-
-# 1) clean polygons without losing pieces
+#Clean polygons without losing pieces
 all_polys_click <- all_polys %>%
   st_make_valid() %>%
   st_collection_extract("POLYGON") %>%
@@ -62,17 +57,16 @@ all_polys_click <- all_polys %>%
 
 
 #-----------------------------------------------------------------------------
-
-setwd("C:/Users/HEADK/Desktop/OBIS_prep")
-
-SABGULFUN_24_COI <- read.csv("OBIS_MCT_SABGULFUN2024_COI_occurrence.csv")
-SABGULFUN_24_12S <- read.csv("OBIS_MCT_SABGULFUN2024_12S_occurrence.csv")
-
-MUSQ16_12S <- read.csv("OBIS_MCT_Musq16_occurrence_FORMAP_notcomplete.csv")
-MUSQ20_12S <- read.csv("OBIS_MCT_Musq20_occurrence_FORMAP_notcomplete.csv")
-MUSQ24_12S <- read.csv("OBIS_MCT_Musq24_occurrence_FORMAP_notcomplete.csv")
-
 #TEMPORARY CODE UNTIL WE HAVE ACCESS TO THE DDD EXTENSION FROM OBIS!!!
+read_csv_files <- function(...) {
+  st_read(file.path("data", "temporary_occurrence", ...))
+}
+
+SABGULFUN_24_COI <- read_csv_files("OBIS_MCT_SABGULFUN2024_COI_occurrence.csv")
+SABGULFUN_24_12S <- read_csv_files("OBIS_MCT_SABGULFUN2024_12S_occurrence.csv")
+MUSQ16_12S <- read_csv_files("OBIS_MCT_Musq16_occurrence_FORMAP_notcomplete.csv")
+MUSQ20_12S <- read_csv_files("OBIS_MCT_Musq20_occurrence_FORMAP_notcomplete.csv")
+MUSQ24_12S <- read_csv_files("OBIS_MCT_Musq24_occurrence_FORMAP_notcomplete.csv")
 
 SABGULFUN_24_COI <- SABGULFUN_24_COI %>%
   mutate(
@@ -791,46 +785,6 @@ richness_grid_all_poly <- richness_grid_all_in_poly %>%
 richness_grid_all_poly <- richness_grid_all_poly[!st_is_empty(richness_grid_all_poly), ]
 
 
-# Compare richness per cell: total vs 12S vs COI
-#rich_compare <- richness_grid_all %>%
-#  st_drop_geometry() %>%
-#  select(cell_id, n_species_total) %>%
-#  left_join(
-#    richness_grid_12S %>%
-#      st_drop_geometry() %>%
-#      select(cell_id, n_species_12S = n_species),
-#    by = "cell_id"
-#  ) %>%
-#  left_join(
-#    richness_grid_COI %>%
-#      st_drop_geometry() %>%
-#      select(cell_id, n_species_COI = n_species),
-#    by = "cell_id"
-#  )
-
-# Quick look
-#head(rich_compare)
-
-# Cells where total richness differs from at least one marker
-#diff_cells <- rich_compare %>%
-#  filter(
-#    n_species_total != n_species_12S |
-#      n_species_total != n_species_COI
-#  )
-
-#nrow(diff_cells)
-#head(diff_cells)
-
-#WesAnderson colour palette
-
-# Helper to convert any Wes palette into a continuous gradient
-wes_cont <- function(name, n = 100) {
-  colorRampPalette(wes_palette(name, type = "continuous"))(n)
-}
-
-
-#Clean single code below
-
 ## ===== Unified richness palettes + leaflet map (Wes Anderson, shared scale) =====
 
 ## 1. Make sure all richness layers & outlines are polygons (no geometry collections)
@@ -1034,110 +988,15 @@ rich_on_grid <- function(grid_sf, pts_sf, value_col = "scientificName") {
 }
 
 ##NOTE: Right now the SARA Schedule 1 filter is matching based on the data inputted into the app. Once linking the code to OBIS data, edit so that it matches based on WoRMS AphiaID
-
-
-#Code for the SARA Schedule 1 list (Cleanup and WoRMS linkage)
-
-#Call in file from OBIS_Prep folder
-setwd("C:/Users/HEADK/Desktop/OBIS_prep")
-
-SARA <- read.xlsx("SARA_Schedule1_RoughCopy_ForRCleanup.xlsx")
-AIS  <- read.xlsx("Target_AIS_List_Claudio.xlsx")
-
-##Clean up columns
-
-#First, remove empty columns and columns without brackets from "Common.Name"
-
-SARA_Clean <- SARA %>%
-  filter(
-    !is.na(Common.Name),
-    Common.Name != "",
-    !is.na(Scientific.Name) |
-      str_detect(Common.Name, "\\(|\\)")
-  )
-
-
-SARA_Clean <- SARA_Clean %>%
-  mutate(
-    # extract text inside ( )
-    paren_name = str_extract(Common.Name, "(?<=\\().*?(?=\\))"),
     
-    # fill Scientific.Name only if missing
-    Scientific.Name = if_else(
-      is.na(Scientific.Name) | Scientific.Name == "",
-      paren_name,
-      Scientific.Name
-    ),
-    
-    # OPTIONAL: remove the ( ... ) part from Common.Name
-    Common.Name = str_remove(Common.Name, "\\s*\\(.*?\\)")
-  ) %>%
-  select(-paren_name)
-
-
-# helper: safe lookup for one name
-worms_lookup_one <- function(x) {
-  if (is.na(x) || !nzchar(x)) return(tibble(AphiaID = NA_integer_, worms_status = NA_character_, worms_valid_name = NA_character_))
-  
-  res <- tryCatch(
-    worrms::wm_records_name(name = x, fuzzy = TRUE, marine_only = TRUE),
-    error = function(e) NULL
-  )
-  
-  if (is.null(res) || nrow(res) == 0) {
-    tibble(AphiaID = NA_integer_, worms_status = NA_character_, worms_valid_name = NA_character_)
-  } else {
-    tibble(
-      AphiaID         = res$AphiaID[[1]],
-      worms_status    = res$status[[1]],      # e.g., "accepted", "unaccepted"
-      worms_valid_name= res$valid_name[[1]]   # accepted name WoRMS points to
-    )
-  }
+#Call for the SARA Schedule 1 list and AIS list
+sara_ais <- function(...) {
+  st_read(file.path("data", "sara_ais", ...), quiet = TRUE) %>%
+    st_transform(4326)
 }
 
-# do lookups once per unique Scientific.Name, then join back
-worms_tbl <- SARA_Clean %>%
-  distinct(Scientific.Name) %>%
-  mutate(worms = map(Scientific.Name, worms_lookup_one)) %>%
-  tidyr::unnest(worms)
-
-SARA_Clean <- SARA_Clean %>%
-  left_join(worms_tbl, by = "Scientific.Name") %>%
-  mutate(
-    worms_match = !is.na(AphiaID)
-  )
-
-
-worms_tbl_AIS <- AIS %>%
-  distinct(Scientific.Name) %>%
-  mutate(worms = map(Scientific.Name, worms_lookup_one)) %>%
-  tidyr::unnest(worms)
-
-AIS <- AIS %>%
-  left_join(worms_tbl_AIS, by = "Scientific.Name") %>%
-  mutate(
-    worms_match = !is.na(AphiaID)
-  )
-
-
-sample_tag <- function(df) {
-  df %>%
-    dplyr::mutate(
-      yr = dplyr::if_else(is.na(year), "", as.character(year)),
-      mk = dplyr::if_else(is.na(marker), dplyr::if_else(is.na(target_gene), "", as.character(target_gene)), as.character(marker)),
-      sf = dplyr::if_else(is.na(source_file), "", as.character(source_file)),
-      tag = paste0(materialSampleID,
-                   dplyr::if_else(yr != "" | mk != "" | sf != "",
-                                  paste0(" (",
-                                         paste(c(yr, mk, sf)[c(yr, mk, sf) != ""], collapse = ", "),
-                                         ")"),
-                                  ""))
-    ) %>%
-    dplyr::pull(tag) %>%
-    unique() %>%
-    sort()
-}
-
+SARA <- sara_ais("SARA_Schedule1_RoughCopy_ForRCleanup.xlsx")
+AIS  <- sara_ais("Target_AIS_List_Claudio.xlsx")
 
 ##Fix grid heatmap by year for all markers
 
