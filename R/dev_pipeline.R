@@ -992,13 +992,12 @@ rich_on_grid <- function(grid_sf, pts_sf, value_col = "scientificName") {
 ##NOTE: Right now the SARA Schedule 1 filter is matching based on the data inputted into the app. Once linking the code to OBIS data, edit so that it matches based on WoRMS AphiaID
     
 #Call for the SARA Schedule 1 list and AIS list
-sara_ais <- function(...) {
-  st_read(file.path("data", "sara_ais", ...), quiet = TRUE) %>%
-    st_transform(4326)
+read_sara_ais_xlsx <- function(...) {
+  readxl::read_xlsx(file.path("data", "sara_ais", ...))
 }
 
-SARA <- sara_ais("SARA_Schedule1_RoughCopy_ForRCleanup.xlsx")
-AIS  <- sara_ais("Target_AIS_List_Claudio.xlsx")
+SARA <- read_sara_ais_xlsx("SARA_Clean_Schedule1_specieslist.xlsx")
+AIS  <- read_sara_ais_xlsx("Target_AIS_List_Claudio.xlsx")
 
 ##Fix grid heatmap by year for all markers
 
