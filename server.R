@@ -905,6 +905,6 @@ server <- function(input, output, session){
         color = "white",
         weight = 3
       )
-  }, ignoreInit = TRUE),
+  }, ignoreInit = TRUE)
   
 }
