@@ -99,7 +99,6 @@ server <- function(input, output, session){
       "Year"           = "Year",
       "Volume"         = "Volume",
       "Depth"          = "Depth",
-      "Pump"           = "Pump",
       "Filter"         = "Filter",
       "Preservative"   = "Preservative",
       "Primers"        = "Primers",
