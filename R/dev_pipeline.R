@@ -60,7 +60,7 @@ all_polys_click <- all_polys %>%
 #TEMPORARY CODE UNTIL WE HAVE ACCESS TO THE DDD EXTENSION FROM OBIS!!!
 read_occ_csv <- function(...) {
   read_csv(file.path("data", "temporary_occurrence", ...),
-  show_col_types = FALSE
+           show_col_types = FALSE
   )
 }
 
@@ -787,6 +787,46 @@ richness_grid_all_poly <- richness_grid_all_in_poly %>%
 richness_grid_all_poly <- richness_grid_all_poly[!st_is_empty(richness_grid_all_poly), ]
 
 
+# Compare richness per cell: total vs 12S vs COI
+#rich_compare <- richness_grid_all %>%
+#  st_drop_geometry() %>%
+#  select(cell_id, n_species_total) %>%
+#  left_join(
+#    richness_grid_12S %>%
+#      st_drop_geometry() %>%
+#      select(cell_id, n_species_12S = n_species),
+#    by = "cell_id"
+#  ) %>%
+#  left_join(
+#    richness_grid_COI %>%
+#      st_drop_geometry() %>%
+#      select(cell_id, n_species_COI = n_species),
+#    by = "cell_id"
+#  )
+
+# Quick look
+#head(rich_compare)
+
+# Cells where total richness differs from at least one marker
+#diff_cells <- rich_compare %>%
+#  filter(
+#    n_species_total != n_species_12S |
+#      n_species_total != n_species_COI
+#  )
+
+#nrow(diff_cells)
+#head(diff_cells)
+
+#WesAnderson colour palette
+
+# Helper to convert any Wes palette into a continuous gradient
+wes_cont <- function(name, n = 100) {
+  colorRampPalette(wes_palette(name, type = "continuous"))(n)
+}
+
+
+#Clean single code below
+
 ## ===== Unified richness palettes + leaflet map (Wes Anderson, shared scale) =====
 
 ## 1. Make sure all richness layers & outlines are polygons (no geometry collections)
@@ -990,14 +1030,112 @@ rich_on_grid <- function(grid_sf, pts_sf, value_col = "scientificName") {
 }
 
 ##NOTE: Right now the SARA Schedule 1 filter is matching based on the data inputted into the app. Once linking the code to OBIS data, edit so that it matches based on WoRMS AphiaID
+
+
+#Code for the SARA Schedule 1 list (Cleanup and WoRMS linkage)
+
+#Call in file from OBIS_Prep folder
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+SARA <- read.xlsx("SARA_Schedule1_RoughCopy_ForRCleanup.xlsx")
+AIS  <- read.xlsx("Target_AIS_List_Claudio.xlsx")
+
+##Clean up columns
+
+#First, remove empty columns and columns without brackets from "Common.Name"
+
+
+SARA_Clean <- SARA %>%
+  filter(
+    !is.na(Common.Name),
+    Common.Name != "",
+    !is.na(Scientific.Name) |
+      str_detect(Common.Name, "\\(|\\)")
+  )
+
+
+SARA_Clean <- SARA_Clean %>%
+  mutate(
+    # extract text inside ( )
+    paren_name = str_extract(Common.Name, "(?<=\\().*?(?=\\))"),
     
-#Call for the SARA Schedule 1 list and AIS list
-read_sara_ais_xlsx <- function(...) {
-  readxl::read_xlsx(file.path("data", "sara_ais", ...))
+    # fill Scientific.Name only if missing
+    Scientific.Name = if_else(
+      is.na(Scientific.Name) | Scientific.Name == "",
+      paren_name,
+      Scientific.Name
+    ),
+    
+    # OPTIONAL: remove the ( ... ) part from Common.Name
+    Common.Name = str_remove(Common.Name, "\\s*\\(.*?\\)")
+  ) %>%
+  select(-paren_name)
+
+
+
+# helper: safe lookup for one name
+worms_lookup_one <- function(x) {
+  if (is.na(x) || !nzchar(x)) return(tibble(AphiaID = NA_integer_, worms_status = NA_character_, worms_valid_name = NA_character_))
+  
+  res <- tryCatch(
+    worrms::wm_records_name(name = x, fuzzy = TRUE, marine_only = TRUE),
+    error = function(e) NULL
+  )
+  
+  if (is.null(res) || nrow(res) == 0) {
+    tibble(AphiaID = NA_integer_, worms_status = NA_character_, worms_valid_name = NA_character_)
+  } else {
+    tibble(
+      AphiaID         = res$AphiaID[[1]],
+      worms_status    = res$status[[1]],      # e.g., "accepted", "unaccepted"
+      worms_valid_name= res$valid_name[[1]]   # accepted name WoRMS points to
+    )
+  }
 }
 
-SARA <- read_sara_ais_xlsx("SARA_Clean_Schedule1_specieslist.xlsx")
-AIS  <- read_sara_ais_xlsx("Target_AIS_List_Claudio.xlsx")
+# do lookups once per unique Scientific.Name, then join back
+worms_tbl <- SARA_Clean %>%
+  distinct(Scientific.Name) %>%
+  mutate(worms = map(Scientific.Name, worms_lookup_one)) %>%
+  tidyr::unnest(worms)
+
+SARA_Clean <- SARA_Clean %>%
+  left_join(worms_tbl, by = "Scientific.Name") %>%
+  mutate(
+    worms_match = !is.na(AphiaID)
+  )
+
+
+worms_tbl_AIS <- AIS %>%
+  distinct(Scientific.Name) %>%
+  mutate(worms = map(Scientific.Name, worms_lookup_one)) %>%
+  tidyr::unnest(worms)
+
+AIS <- AIS %>%
+  left_join(worms_tbl_AIS, by = "Scientific.Name") %>%
+  mutate(
+    worms_match = !is.na(AphiaID)
+  )
+
+
+sample_tag <- function(df) {
+  df %>%
+    dplyr::mutate(
+      yr = dplyr::if_else(is.na(year), "", as.character(year)),
+      mk = dplyr::if_else(is.na(marker), dplyr::if_else(is.na(target_gene), "", as.character(target_gene)), as.character(marker)),
+      sf = dplyr::if_else(is.na(source_file), "", as.character(source_file)),
+      tag = paste0(materialSampleID,
+                   dplyr::if_else(yr != "" | mk != "" | sf != "",
+                                  paste0(" (",
+                                         paste(c(yr, mk, sf)[c(yr, mk, sf) != ""], collapse = ", "),
+                                         ")"),
+                                  ""))
+    ) %>%
+    dplyr::pull(tag) %>%
+    unique() %>%
+    sort()
+}
+
 
 ##Fix grid heatmap by year for all markers
 
@@ -1065,4 +1203,3 @@ grid_ALL_by_year <- list(
   "2023" = make_all_marker_grid_from_detections(grid_ALL_static, species_sf_all, "2023"),
   "2024" = make_all_marker_grid_from_detections(grid_ALL_static, species_sf_all, "2024")
 )
-
