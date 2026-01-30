@@ -7,7 +7,7 @@ Currently, running the app takes a while and you cannot see the code it is runni
 
 To ensure the code is running without error, run each file in the following order:
 1) R/packages.R
-2) R/dev_pipeline.R
+2) R/precompute_data.R
 3) ui.R
 4) server.R
 
