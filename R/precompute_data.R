@@ -1869,7 +1869,7 @@ $(function(){
       div(
         id = "monthly_plot_control",
         class = "leaflet-control",
-        div(id = "monthly_plot_title", "Monthly samples collected"),
+        div(id = "monthly_plot_title", "Monthly Number of Samples Collected"),
         div(id = "monthly_plot_subtitle", textOutput("monthly_plot_subtitle", inline = TRUE)),
         plotOutput("monthly_circular_plot", height = "320px", width = "340px")
       ),
