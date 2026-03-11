@@ -23,6 +23,8 @@ library(taxplore)  #Here is the link for taxplore tutorial once data is linked f
 library(plotly)
 library(worrms)
 library(vegan)
+library(forcats)
+library(shinycssloaders)
 
 #Canadian MPA Network Shapefiles and planning regions extracted from the Canadian Database of Protected and Conserved Areas. This data was filtered for the three MPAs targeted in the Maritimes region.
 
@@ -91,10 +93,11 @@ all_polys_click <- all_polys_clean %>%
 
 #-----------------------------------------------------------------------------
 read_data <- function(
-    dataset_ids       = "634a3b54-9e8e-4b20-80fa-23eaed15284d",
+    dataset_ids       = NULL,
     scientificname    = NULL,
     worms_id          = NULL,
-    areaid            = NULL,
+    areaid            = "34", #Canada: North Atlantic
+    #geometry          = "POLYGON ((-67.72 40.614, -56.821 40.614, -56.821 47.279, -67.72 47.279, -67.72 40.614))",
     join_by           = c("auto", "occurrenceID", "id"),
     require_absences  = TRUE
 ) {
@@ -105,17 +108,18 @@ read_data <- function(
   occurrence_cols <- c(
     "recordedBy","bibliographicCitation","materialSampleID",
     "organismQuantity","organismQuantityType",
-    "sampleSizeValue","sampleSizeUnit","associatedSequences",
+    "samp_size", "samp_size_unit", "decimalLatitude", "decimalLongitude",
     "minimumDepthInMeters","maximumDepthInMeters","month","year",
-    "scientificNameID","kingdom","phylum","class","order","family","genus"
+    "scientificNameID","kingdom","phylum","class","order","family","genus",
+    "dataset_id", "bathymetry", "associatedSequences", "bibliographicCitation"
   )
 
   dna_cols <- c(
-    "id","dna_sequence","target_gene","pcr_primer_forward","samp_name",
-    "env_broad_scale","env_local_scale","env_medium","samp_mat_process",
-    "size_frac","samp_size","samp_size_unit","otu_db","seq_kit",
-    "otu_seq_comp_appr","pcr_primer_name_forward","pcr_primer_name_reverse",
-    "pcr_primer_reference","occurrenceID"
+    "id","dna_sequence","target_gene","pcr_primer_forward", "pcr_primer_reverse",
+    "samp_name", "env_broad_scale","env_local_scale","env_medium","samp_mat_process",
+    "size_frac","samp_size","samp_size_unit","otu_db","seq_kit", "otu_seq_comp_appr",
+    "pcr_primer_name_forward","pcr_primer_name_reverse", "pcr_primer_reference",
+    "occurrenceID"
   )
 
   mof_cols <- c(
@@ -124,6 +128,13 @@ read_data <- function(
     "seq_run_id","lib_id","project_id","pcr_0_1","samp_store_sol","samp_store_temp",
     "platform","instrument","tax_assign_cat","LClabel","occurrenceID",
     "nucl_acid_ext","nucl_acid_ext_kit","filter_material"
+  )
+
+  required_ext_cols <- c(
+    "samp_name",
+    "target_gene",
+    "pcr_primer_name_forward",
+    "pcr_primer_name_reverse"
   )
 
   added_cols <- c("category", "flags")
@@ -138,15 +149,15 @@ read_data <- function(
   ))
 
   # ---- helper: enforce columns (no external function needed) ----
-  enforce_cols <- function(df, cols) {
+  enforce_cols <- function(occ_all, cols) {
     # add missing columns as NA
-    missing <- setdiff(cols, names(df))
+    missing <- setdiff(cols, names(occ_all))
     if (length(missing) > 0) {
-      for (m in missing) df[[m]] <- NA
+      for (m in missing) occ_all[[m]] <- NA
     }
     # keep only requested columns in a consistent order
-    df <- df[, intersect(cols, names(df)), drop = FALSE]
-    df
+    occ_all <- occ_all[, intersect(cols, names(occ_all)), drop = FALSE]
+    occ_all
   }
 
   # ---- helper: build extension-wide table (MOF wide + DNA) ----
@@ -212,6 +223,7 @@ read_data <- function(
     ds_tbl <- robis::dataset(
       scientificname = scientificname,
       areaid         = areaid,
+      #geometry       = geometry,
       taxonid        = worms_id,
       hasextensions  = c("DNADerivedData", "MeasurementOrFact")
     ) %>%
@@ -258,6 +270,7 @@ read_data <- function(
         scientificname = scientificname,
         taxonid        = worms_id,
         areaid         = areaid,
+        #geometry       = geometry,
         absence        = "include",
         dropped        = "include",
         exclude        = exclude_list
@@ -296,6 +309,7 @@ read_data <- function(
         scientificname = scientificname,
         taxonid        = worms_id,
         areaid         = areaid,
+        #geometry       = geometry,
         extensions     = c("DNADerivedData", "MeasurementOrFact"),
         hasextensions  = c("DNADerivedData", "MeasurementOrFact"),
         dropped        = "include",
@@ -321,6 +335,17 @@ read_data <- function(
     if (is.null(ext_joined) || nrow(ext_joined) == 0L) {
       core_all$samp_name <- as.character(dplyr::coalesce(core_all$samp_name, core_all$materialSampleID))
       return(core_all)
+    }
+
+    missing_required <- setdiff(required_ext_cols, names(ext_joined))
+    if (length(missing_required) > 0) {
+      warning(
+        "Dataset ", ds,
+        " missing required column(s): ",
+        paste(missing_required, collapse = ", "),
+        " ; skipping."
+      )
+      return(NULL)
     }
 
     # 1c) merge extensions onto full core (absences keep NA extension fields)
@@ -350,12 +375,12 @@ read_data <- function(
     return(tibble::tibble())
   }
 
-  GOTeDNA_df <- dplyr::bind_rows(obis_list)
-  rownames(GOTeDNA_df) <- NULL
-  GOTeDNA_df
+  GOTeDNA_occ_all <- dplyr::bind_rows(obis_list)
+  rownames(GOTeDNA_occ_all) <- NULL
+  GOTeDNA_occ_all
 }
 
-STORED_DATA <- read_data_new()
+STORED_DATA <- read_data()
 saveRDS(STORED_DATA, "./data/test_read_data_file.rds")
 STORED_DATA <- readRDS("./data/test_read_data_file.rds")
 
@@ -365,31 +390,33 @@ STORED_DATA <- readRDS("./data/test_read_data_file.rds")
 
 #Connect code below to stored data object
 
+# ---- standardize types early ----
 occ_all <- STORED_DATA %>%
-  mutate(
-    year            = as.character(year),
-    occurrenceStatus = tolower(as.character(occurrenceStatus)),
-    decimalLatitude  = suppressWarnings(as.numeric(decimalLatitude)),
-    decimalLongitude = suppressWarnings(as.numeric(decimalLongitude)),
-    target_gene      = case_when(
-      str_detect(tolower(target_gene), "12s") ~ "12S",
-      str_detect(tolower(target_gene), "coi") ~ "COI",
-      str_detect(tolower(target_gene), "16s") ~ "16S",
-      str_detect(tolower(target_gene), "18s") ~ "18S",
+  dplyr::mutate(
+    year             = as.character(year),
+    samp_name         = as.character(samp_name),
+    occurrenceStatus  = tolower(as.character(occurrenceStatus)),
+    decimalLatitude   = suppressWarnings(as.numeric(decimalLatitude)),
+    decimalLongitude  = suppressWarnings(as.numeric(decimalLongitude)),
+    target_gene       = dplyr::case_when(
+      stringr::str_detect(tolower(target_gene), "12s") ~ "12S",
+      stringr::str_detect(tolower(target_gene), "coi") ~ "COI",
+      stringr::str_detect(tolower(target_gene), "16s") ~ "16S",
+      stringr::str_detect(tolower(target_gene), "18s") ~ "18S",
       TRUE ~ as.character(target_gene)
     )
   )
 
 # ---- Build available gene-year keys dynamically ----
 KEY_TBL <- occ_all %>%
-  filter(!is.na(year), year != "", !is.na(target_gene), target_gene != "") %>%
-  distinct(target_gene, year) %>%
-  mutate(
+  dplyr::filter(!is.na(year), year != "", !is.na(target_gene), target_gene != "") %>%
+  dplyr::distinct(target_gene, year) %>%
+  dplyr::mutate(
     target_gene = as.character(target_gene),
     year        = as.character(year),
     key         = paste(target_gene, year, sep = "_")
   ) %>%
-  arrange(target_gene, year)
+  dplyr::arrange(target_gene, year)
 
 KEYS <- KEY_TBL$key
 
@@ -407,8 +434,8 @@ DATA_BY_KEY <- occ_all %>%
 names(DATA_BY_KEY) <- KEYS
 
 # ---- Convert each group to SF points (PRESENT only) ----
-points_sf_from_df <- function(df) {
-  df %>%
+points_sf_from_occ_all <- function(occ_all) {
+  occ_all %>%
     filter(!is.na(decimalLatitude), !is.na(decimalLongitude),
            tolower(as.character(occurrenceStatus)) == "present") %>%
     st_as_sf(coords = c("decimalLongitude", "decimalLatitude"), crs = 4326)
@@ -419,7 +446,7 @@ SPECIES_SF_BY_KEY <- purrr::imap(DATA_BY_KEY, ~{
   gene <- parts[1]
   yr   <- parts[2]
 
-  points_sf_from_df(.x) %>%
+  points_sf_from_occ_all(.x) %>%
     mutate(target_gene = gene, year = yr)
 })
 
@@ -601,6 +628,54 @@ RICHNESS_BY_KEY <- purrr::map(
 RICHNESS_ALL <- make_richness_layer_fast(
   grid_clip_ll,
   dplyr::bind_rows(SPECIES_SF_BY_KEY_ll)
+)
+
+# species_sf_all: sf POINTS with at least cell_id, target_gene, scientificName (and year)
+# grid_clip: sf POLYGONS with cell_id + geometry  (your analysis grid)
+
+build_gene_all_grid <- function(gene, grid_sf, pts_sf, tax_col = "scientificName") {
+
+  pts_g <- pts_sf %>%
+    dplyr::filter(as.character(target_gene) == gene) %>%
+    dplyr::mutate(
+      cell_id = as.integer(cell_id),
+      taxon   = as.character(.data[[tax_col]])
+    ) %>%
+    dplyr::filter(!is.na(cell_id), !is.na(taxon), taxon != "")
+
+  # unique taxa per cell across ALL years
+  rich_tbl <- pts_g %>%
+    sf::st_drop_geometry() %>%
+    dplyr::distinct(cell_id, taxon) %>%
+    dplyr::count(cell_id, name = "n_species")
+
+  out <- grid_sf %>%
+    dplyr::mutate(cell_id = as.integer(cell_id)) %>%
+    dplyr::left_join(rich_tbl, by = "cell_id") %>%
+    dplyr::mutate(
+      n_species    = tidyr::replace_na(n_species, 0L),
+      has_sampling = n_species > 0
+    )
+
+  out
+}
+
+# Use the lon/lat versions you created for the grid + points
+# grid_clip_ll and species_sf_all_ll are both EPSG:4326
+
+species_sf_all_cell <- sf::st_join(
+  species_sf_all_ll,
+  grid_clip_ll %>% dplyr::select(cell_id),
+  join = sf::st_within,
+  left = FALSE
+)
+
+# Now this will work because pts_sf has cell_id
+RICHNESS_GENE_ALL <- list(
+  "12S" = build_gene_all_grid("12S", grid_clip_ll, species_sf_all_cell, tax_col = "scientificName"),
+  "COI" = build_gene_all_grid("COI", grid_clip_ll, species_sf_all_cell, tax_col = "scientificName"),
+  "16S" = build_gene_all_grid("16S", grid_clip_ll, species_sf_all_cell, tax_col = "scientificName"),
+  "18S" = build_gene_all_grid("18S", grid_clip_ll, species_sf_all_cell, tax_col = "scientificName")
 )
 
 # optional: keep dissolved polygon union for leaflet
@@ -804,7 +879,9 @@ rich_domain <- c(0, max_rich)
 #Code for the SARA Schedule 1 list (Cleanup and WoRMS linkage)
 
 #Call in file from OBIS_Prep folder
-SARA <- read.xlsx(file.path("data", "sara_ais", "SARA_Clean_Schedule1_specieslist.xlsx"))
+#SARA <- read.xlsx(file.path("data", "sara_ais", "SARA_Clean_Schedule1_specieslist.xlsx"))
+
+SARA <- read.xlsx(file.path("data", "sara_ais", "SARA_Clean_Schedule1_specieslist_noPacific.xlsx"))
 AIS  <- read.xlsx(file.path("data", "sara_ais", "Target_AIS_List_Claudio.xlsx"))
 
 # helper: safe lookup for one name
@@ -841,8 +918,8 @@ AIS <- AIS %>%
   )
 
 
-sample_tag <- function(df) {
-  df %>%
+sample_tag <- function(occ_all) {
+  occ_all %>%
     dplyr::mutate(
       yr = dplyr::if_else(is.na(year), "", as.character(year)),
       mk = dplyr::if_else(is.na(target_gene), "", as.character(target_gene)),
@@ -886,15 +963,15 @@ orange3 <- c("#fed976", "#feb24c", "#fd8d3c")                   # mixed depth ov
 orange_pal    <- grDevices::colorRampPalette(orange3)
 
 
-get_depth_num <- function(df) {
+get_depth_num <- function(occ_all) {
   depth_col <- dplyr::case_when(
-    "minimumDepthInMeters" %in% names(df) ~ "minimumDepthInMeters",
-    "Depth" %in% names(df) ~ "Depth",
+    "minimumDepthInMeters" %in% names(occ_all) ~ "minimumDepthInMeters",
+    "Depth" %in% names(occ_all) ~ "Depth",
     TRUE ~ NA_character_
   )
-  if (is.na(depth_col)) return(df %>% mutate(depth_m = NA_real_))
+  if (is.na(depth_col)) return(occ_all %>% mutate(depth_m = NA_real_))
 
-  df %>% mutate(depth_m = suppressWarnings(as.numeric(.data[[depth_col]])))
+  occ_all %>% mutate(depth_m = suppressWarnings(as.numeric(.data[[depth_col]])))
 }
 
 
@@ -956,6 +1033,15 @@ depth_on_grid_stats <- function(grid_sf, sample_pts_sf, depth_col = "depth_m",
   stopifnot(inherits(grid_sf, "sf"))
   stopifnot(inherits(sample_pts_sf, "sf"))
 
+  if (sf::st_crs(sample_pts_sf) != sf::st_crs(grid_sf)) {
+    sample_pts_sf <- sf::st_transform(sample_pts_sf, sf::st_crs(grid_sf))
+  }
+  if (sf::st_crs(all_polys) != sf::st_crs(grid_sf)) {
+    all_polys2 <- sf::st_transform(all_polys, sf::st_crs(grid_sf))
+  } else {
+    all_polys2 <- all_polys
+  }
+
   haspt <- lengths(sf::st_intersects(grid_sf, sample_pts_sf)) > 0
   grid_with <- sf::st_join(grid_sf, sample_pts_sf, join = sf::st_intersects, left = TRUE)
 
@@ -978,7 +1064,7 @@ depth_on_grid_stats <- function(grid_sf, sample_pts_sf, depth_col = "depth_m",
     ) %>%
     sf::st_as_sf()
 
-  sf::st_intersection(out, all_polys) %>%
+  sf::st_intersection(out, all_polys2) %>%
     sf::st_collection_extract("POLYGON") %>%
     (\(x) x[!sf::st_is_empty(x), ])()
 }
@@ -999,8 +1085,8 @@ depth_layers <- c(
   )
 )
 
-depth_layers <- lapply(depth_layers, function(df) {
-  df %>%
+depth_layers <- lapply(depth_layers, function(occ_all) {
+  occ_all %>%
     dplyr::mutate(
       mixed_depth = as.logical(mixed_depth),
       depth_fill  = depth_to_col(depth_med),
@@ -1022,12 +1108,41 @@ depth_legend_labs <- depth_labels
 
 #layer_sf <- RICHNESS_BY_KEY[[input$key]]
 
+species_sf_min <- species_sf_all %>%
+  dplyr::select(
+    scientificName, target_gene, year,
+    kingdom, phylum, class, order,
+    geometry
+  )
+
+species_sf_by_year <- split(species_sf_min, as.character(species_sf_min$year))
+species_sf_by_year[["All"]] <- species_sf_min
+
+standardize_month_col <- function(df) {
+  df %>%
+    dplyr::mutate(
+      month = dplyr::case_when(
+        !is.na(suppressWarnings(as.integer(as.character(month)))) &
+          suppressWarnings(as.integer(as.character(month))) %in% 1:12 ~
+          month.abb[suppressWarnings(as.integer(as.character(month)))],
+        as.character(month) %in% month.name ~ substr(as.character(month), 1, 3),
+        as.character(month) %in% month.abb ~ as.character(month),
+        TRUE ~ as.character(month)
+      )
+    )
+}
+
+occ_all        <- standardize_month_col(occ_all)
+species_sf_all <- standardize_month_col(species_sf_all)
+
 #Bundle the outputs in one list:
 APP_DATA <- list(
   occ_all = occ_all,
   KEY_TBL = KEY_TBL,
   sampling_pts = sampling_pts,
   species_sf_all = species_sf_all,
+  species_sf_min = species_sf_min,
+  species_sf_by_year = species_sf_by_year,
   grid_clip = grid_clip,
   RICHNESS_BY_KEY = RICHNESS_BY_KEY,
   RICHNESS_ALL = RICHNESS_ALL,
@@ -1046,28 +1161,216 @@ APP_DATA <- list(
 
 ui <- fluidPage(
   shinyjs::useShinyjs(),
+    theme = bslib::bs_theme(version = 3),
 
-  tags$head(
-    tags$style(HTML("
+    tags$head(
+
+      # jQuery UI (needed for draggable/resizable)
+      tags$link(
+        rel  = "stylesheet",
+        href = "https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css"
+      ),
+      tags$script(src = "https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"),
+
+      tags$style(HTML("
       body { padding-top: 62px; }
       .navbar { margin-bottom: 10px; }
-      #map { height: calc(95vh - 62px) !important; }
 
-      #map_wrap { position: relative; }
-      #floating_panel {
-        background: rgba(255,255,255,0.92);
-        border-radius: 6px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-        padding: 10px 12px;
-        max-height: calc(95vh - 30px);
-        overflow-y: auto;
-        z-index: 999;
+      .navbar{
+      background-color: #2241a7 !important;
+      border-color: #2241a7 !important;
+      z-index: 20000 !important;
+      position: fixed !important;
+      width: 100%;
       }
 
-      .filter-btn-grid{
+/* navbar text */
+.navbar .navbar-brand,
+.navbar .navbar-nav > li > a{
+  color: #ffffff !important;
+}
+
+/* hover text */
+.navbar .navbar-nav > li > a:hover,
+.navbar .navbar-brand:hover{
+  color: #ffffff !important;
+  background-color: rgba(255,255,255,0.08) !important;
+}
+
+/* active tab */
+.navbar .navbar-nav > .active > a,
+.navbar .navbar-nav > .active > a:focus,
+.navbar .navbar-nav > .active > a:hover{
+  color: #ffffff !important;
+  background-color: rgba(0,0,0,0.15) !important;
+}
+
+      /* Map container MUST be the positioning context + CLIP panel to map */
+      #map_wrap{
+        position: relative;
+        height: calc(95vh - 62px);
+        overflow: hidden; /* prevents panel overlapping other sections */
+      }
+      #map{ height: 100% !important; }
+
+      /* Make the overlays panel wide enough */
+      .leaflet-control-layers-overlays{ min-width: 220px; }
+
+      /* Leaflet layer toggles: left aligned */
+      .leaflet-control-layers-overlays{
+        min-width: 220px;
+        text-align: left !important;
+      }
+      .leaflet-control-layers-overlays label{
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        gap: 10px;
+        width: 100%;
+        margin: 6px 0;
+      }
+      .leaflet-control-layers-overlays label span{
+        flex: 1 1 auto;
+        text-align: left !important;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.2;
+      }
+
+      /* Switch itself */
+      .leaflet-control-layers-overlays input[type='checkbox']{
+        flex: 0 0 auto;
+        margin: 0 !important;
+
+        appearance:none;
+        -webkit-appearance:none;
+        width:28px;
+        height:16px;
+        border-radius:999px;
+        background:#cfd6dd;
+        position:relative;
+        cursor:pointer;
+        outline:none;
+        transition:background 0.15s ease-in-out;
+      }
+      .leaflet-control-layers-overlays input[type='checkbox']::after{
+        content:'';
+        position:absolute;
+        top:2px; left:2px;
+        width:12px; height:12px;
+        border-radius:50%;
+        background:white;
+        box-shadow:0 1px 3px rgba(0,0,0,0.25);
+        transition:transform 0.15s ease-in-out;
+      }
+      .leaflet-control-layers-overlays input[type='checkbox']:checked{ background:#2c7be5; }
+      .leaflet-control-layers-overlays input[type='checkbox']:checked::after{
+        transform:translateX(12px);
+      }
+
+     /* ---- Floating panel ---- */
+#floating_panel{
+  position: absolute;
+  background: rgba(255,255,255,0.92);
+  z-index: 9999;
+
+  display: flex;
+  flex-direction: column;
+
+  /* keep panel inside map bounds */
+  max-width:  calc(100% - 24px);
+  max-height: calc(100% - 24px);
+
+  /* panel itself should NOT scroll */
+  overflow: hidden;
+
+  /* optional nice defaults */
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+}
+
+/* Put Leaflet controls (esp. draw toolbar) above the floating panel */
+#map_wrap .leaflet-top,
+#map_wrap .leaflet-bottom{
+  z-index: 12000 !important;
+}
+
+/* Specifically ensure the draw toolbar is above */
+#map_wrap .leaflet-draw,
+#map_wrap .leaflet-draw-toolbar,
+#map_wrap .leaflet-control-draw{
+  z-index: 13000 !important;
+  position: relative; /* makes z-index apply reliably */
+}
+
+/* Let bootstrap control collapse visibility; we only improve layout */
+#floating_body.collapse.in,
+#floating_body.collapsing{
+  display: flex !important;
+  flex: 1 1 auto;
+  flex-direction: column;
+
+  /* REQUIRED for nested scrolling in flex layouts */
+  min-height: 0;
+}
+
+/* Actual scrolling container */
+#floating_body .panel-body{
+  flex: 1 1 auto;
+
+  /* REQUIRED for nested scrolling in flex layouts */
+  min-height: 0;
+
+  /* scrollbar comes back here */
+  overflow-y: auto;
+
+  /* guarantees a scroll region even if flex sizing is finicky */
+  max-height: calc(100% - 52px);
+}
+
+/* Remove collapse animation delay (optional) */
+#floating_body.collapse,
+#floating_body.collapsing{
+  -webkit-transition: none !important;
+  transition: none !important;
+}
+#floating_panel{ transition: none !important; }
+
+
+      /* resizable handles */
+      #floating_panel .ui-resizable-handle{ z-index: 10000; }
+      #floating_panel .ui-resizable-se{
+        width: 14px; height: 14px;
+        right: 2px; bottom: 2px;
+        cursor: se-resize;
+        background: rgba(0,0,0,0.20);
+        border-radius: 3px;
+      }
+      #floating_panel .ui-resizable-e{
+        width: 10px; right: 0px;
+        top: 0; bottom: 0;
+        cursor: e-resize;
+      }
+      #floating_panel .ui-resizable-s{
+        height: 10px; bottom: 0px;
+        left: 0; right: 0;
+        cursor: s-resize;
+      }
+
+      /* Button grids */
+      .filter-btn-grid-4{
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(4, 1fr);
         gap: 8px;
+      }
+      .filter-btn-grid-2{
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      @media (max-width: 500px){
+        .filter-btn-grid-4{ grid-template-columns: repeat(2, 1fr); }
+        .filter-btn-grid-2{ grid-template-columns: repeat(2, 1fr); }
       }
       .filter-btn{
         width: 100% !important;
@@ -1078,8 +1381,100 @@ ui <- fluidPage(
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .filter-btn-short{
+        height: 40px !important;
+        padding: 6px 10px !important;
+        font-size: 15px !important;
+      }
 
-      #floating_toggle {
+/* =========================
+   GROUP FILTER BUTTONS
+   ========================= */
+
+/* Remove Bootstrap orange focus border */
+.filter-btn:focus,
+.filter-btn:active,
+.filter-btn.active,
+.filter-btn:focus:active{
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* OFF button border */
+.filter-btn{
+  border-color: #d0d0d0 !important;
+}
+
+/* ON button border = darker version of fill */
+.filter-btn.btn-group-on{
+  background-color: #2241a7 !important;
+  border-color: #2241a7 !important;  /* darker than fill */
+  color: #0b2a2a !important;
+}
+
+/* OFF state (default look) */
+.filter-btn{
+  background-color: #f7f7f7 !important;
+  border-color: #d0d0d0 !important;
+  color: #0b2a2a !important;
+}
+
+/* ON state (group buttons) */
+.filter-btn.btn-group-on{
+  background-color: #2241a7 !important;
+  border-color: #2241a7 !important;
+  color: #FFFFFF !important;   /* <-- white text */
+}
+
+/* OFF hover */
+.filter-btn:hover{
+  background-color: #eeeeee !important;
+}
+
+/* ON hover (different colour) */
+.filter-btn.btn-group-on:hover{
+  background-color: #2241a7 !important;
+  border-color: #2241a7 !important;
+  color: #FFFFFF !important;
+}
+
+/* SARA / AIS buttons */
+.filter-btn.btn-sara-on,
+.filter-btn.btn-ais-on{
+  background-color: #2241a7 !important;
+  border-color: #2241a7 !important;
+  color: #FFFFFF !important;   /* white text */
+}
+
+/* SARA / AIS hover when ON */
+.filter-btn.btn-sara-on:hover,
+.filter-btn.btn-ais-on:hover{
+  background-color: #2241a7 !important;
+  border-color: #2241a7 !important;
+}
+
+/* Download button (grey button inside blue panel) */
+.btn-download-got,
+.btn-download-got:focus,
+.btn-download-got:active{
+  background-color: #f2f2f2 !important;
+  border-color: #d0d0d0 !important;
+  color: #000000 !important;
+  font-size: 16px !important;
+  padding: 10px 22px !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+/* hover state */
+.btn-download-got:hover{
+  background-color: #e6e6e6 !important;
+  border-color: #d0d0d0 !important;
+  color: #000000 !important;
+}
+
+      /* Floating toggle header */
+      #floating_toggle{
         width: 100%;
         text-align: left;
         display: flex;
@@ -1093,255 +1488,381 @@ ui <- fluidPage(
       #floating_toggle[aria-expanded='true'] .caret-icon { transform: rotate(180deg); }
 
       .scroll-section { scroll-margin-top: 80px; }
-          /* Give the legend its “white box” back */
 
-/* === Shared legend typography === */
-.leaflet-control.legend-base {
-  font-family: Arial !important;
-  font-size: 15px !important;
-  font-weight: 400 !important;
-  line-height: 1.45 !important;
-  color: #222 !important;
-}
+      /* Legends */
+      .leaflet-control.legend-base{
+        font-family: Arial !important;
+        font-size: 15px !important;
+        font-weight: 400 !important;
+        line-height: 1.45 !important;
+        color: #222 !important;
+      }
+      .leaflet-control.legend-base i{
+        width: 18px !important;
+        height: 18px !important;
+        display: inline-block !important;
+        margin-right: 8px !important;
+        vertical-align: middle !important;
+        float: none !important;
+      }
+      .leaflet-control.legend-richness-box,
+      .leaflet-control.legend-depth-box{
+        background: rgba(255,255,255,0.92) !important;
+        border-radius: 6px !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important;
+        border: 1px solid rgba(0,0,0,0.15) !important;
+        padding: 14px 16px !important;
+        width: 190px !important;
+      }
+      .legend-hidden{ display:none !important; }
 
-/* === Shared legend swatches === */
-.leaflet-control.legend-base i{
-  width: 18px !important;
-  height: 18px !important;
-  display: inline-block !important;
-  margin-right: 8px !important;
-  vertical-align: middle !important;
-  float: none !important;
-}
+/* ---- Data selection layout ---- */
 
-.leaflet-control.legend-richness-box{
-  background: rgba(255,255,255,0.92) !important;
-  border-radius: 6px !important;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important;
-  border: 1px solid rgba(0,0,0,0.15) !important;
-  padding: 14px 16px !important;
-  width: 190px !important;
-}
-
-
-/* === protocol cards (GOTeDNA palette) === */
-.protocol-grid {
+.data-select-grid{
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px;
+  grid-template-columns: 250px 300px 300px 110px;
+  column-gap: 50px;
+  row-gap: 0;
+  align-items: start;
 }
 
-.protocol-field-title {
-  font-size: 13px;
-  font-weight: 400 !important;
-  margin-bottom: 4px;
-  color: #0b2a2a;
+.data-select-item{
+  min-width: 0;
 }
 
-.protocol-card {
-  background: #EAF7FB;            /* pastel baby blue */
-  border: 1px solid rgba(49, 180, 219, 0.75); /* deepskyblue border */
-  border-radius: 8px;
-  padding: 10px 12px;
-  min-height: 38px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #0b2a2a;                 /* readable dark text */
-  box-shadow: 0 1px 6px rgba(44, 98, 203, 0.10);
-  transition: background-color 250ms ease, border-color 250ms ease, box-shadow 250ms ease, color 250ms ease;
+.data-select-item .form-group{
+  margin-bottom: 0 !important;
 }
 
-/* changed card = darker */
-.protocol-card.changed {
-  background: #9ADBE8;            /* royalblue (DARKEST = changed) */
-  border-color: #2f9ae6;          /* dodgerblue border */
-  color: #0b2a2a;
-  box-shadow: 0 0 0 3px rgba(32, 224, 98, 0.35); /* spring green glow */
+.data-select-grid .selectize-control{
+  margin-bottom: 0 !important;
 }
 
-/* optional: for missing values */
-.protocol-card.na {
-  background: #EAF7FB;            /* pastel baby blue */
-  border-color: #31b4db;          /* deepskyblue */
-  color: #0b2a2a;
-  opacity: 0.9;
+.primer-btn-row{
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
 }
 
-/* === filter button grid + equal-size buttons === */
-.filter-btn-grid{
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);  /* 3 buttons per row (9 = 3 rows) */
+/* right-side action buttons */
+.confirm-slot{
+  align-self: start;
+  margin-top: 24px;
+}
+
+.confirm-btn-row{
+  display: flex;
+  align-items: stretch;
   gap: 8px;
-}
-
-.filter-btn{
-  width: 100% !important;   /* all same width within grid cell */
-  height: 70px !important;  /* all same height */
-  padding: 6px 10px !important;
-  font-size: 15px !important;
-  white-space: nowrap;      /* prevent wrapping */
-  overflow: hidden;
-  text-overflow: ellipsis;  /* ... if label too long */
-}
-
-#map_wrap { position: relative; }
-
-#floating_panel {
-background: rgba(255,255,255,0.92);
-border-radius: 6px;
-box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-padding: 10px 12px;
-max-height: calc(95vh - 30px);
-overflow-y: auto;
-z-index: 999;
-}
-
-/* Header button */
-  #floating_toggle {
   width: 100%;
-text-align: left;
-display: flex;
-align-items: center;
-justify-content: space-between;
-font-size: 16px;
-font-weight: 600;
-padding: 10px 12px;
-}
-#floating_toggle .caret-icon {
-transition: transform 150ms ease;
-}
-#floating_toggle[aria-expanded='true'] .caret-icon {
-transform: rotate(180deg);
 }
 
-/* Optional: tighter body padding */
-  #floating_panel .panel-body { padding-top: 10px; }
+.confirm-btn-row .btn{
+  height: 38px !important;   /* same height for both */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 !important;
+}
 
-  /* Example: keep your existing button grid styles */
-  .filter-btn-grid{
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+.confirm-btn-row .btn-primary{
+  flex: 0 0 110px;           /* Confirm width */
+}
+
+.confirm-btn-row .btn-download-got{
+  flex: 0 0 160px;           /* Download width */
+  padding: 6px 12px !important;
+  font-size: 14px !important;
+}
+
+@media (max-width: 1200px){
+  .data-select-grid{
+    grid-template-columns: 1fr 1fr;
+    row-gap: 12px;
   }
-.filter-btn{
-  width: 100% !important;
-  height: 70px !important;
-  padding: 6px 10px !important;
-  font-size: 15px !important;
+
+  .confirm-slot{
+    margin-top: 0;
+  }
+
+  .confirm-btn-row{
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
+/* optional: reduce spacing under labels a bit */
+.data-select-grid label{
+  margin-bottom: 4px !important;
+}
+
+@media (max-width: 1200px){
+  .data-select-grid{
+    grid-template-columns: 1fr 1fr;
+    row-gap: 12px;
+  }
+
+  .confirm-slot{
+    margin-top: 0;
+  }
+
+  .confirm-slot .btn{
+    width: auto;
+  }
+}
+
+table.dataTable.nowrap td,
+table.dataTable.nowrap th {
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* --- Leaflet legend container --- */
-.leaflet-control.legend-richness{
-  background: rgba(255,255,255,0.92) !important;
-  border-radius: 6px !important;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important;
-  border: 1px solid rgba(0,0,0,0.15) !important;
-  padding: 14px 16px !important;
-  width: 190px !important;
-  font-size: 16px !important;
-  line-height: 1.4 !important;
 }
 
-/* --- Swatches (this is the important part) --- */
-.leaflet-control.legend-richness i{
-  width: 18px !important;
-  height: 18px !important;
-  display: inline-block !important;
-  margin-right: 8px !important;
-  vertical-align: middle !important;
-  float: none !important;            /* avoid float weirdness */
+/* circular monthly plot panel */
+#monthly_plot_control{
+  position: absolute;
+  z-index: 11000;
+  width: 350px;
+  background: rgba(255,255,255,0.92);
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+  border: 1px solid rgba(0,0,0,0.15);
+  padding: 8px 8px 2px 8px;
+  display: none;
 }
 
-/* Each label is text after the swatch and before <br> */
-.leaflet-control.legend-richness br{
-  line-height: 22px !important;
-}
-/* Headings inside the layer control */
-.leaflet-control-layers .layers-heading{
-  font-weight: 700;
-  margin: 6px 0 4px 0;
-  font-size: 13px;
-  opacity: 0.9;
-}
-
-/* A separator line */
-.leaflet-control-layers .layers-sep{
-  border-top: 1px solid rgba(0,0,0,0.15);
-  margin: 6px 0;
-}
-
-.legend-hidden{ display:none !important; }
-
-/* Depth legend box */
-.leaflet-control.legend-depth-box{
-  background: rgba(255,255,255,0.92) !important;
-  border-radius: 6px !important;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important;
-  border: 1px solid rgba(0,0,0,0.15) !important;
-  padding: 14px 16px !important;
-  width: 190px !important;
-}
-
-/* Depth legend color bins */
-.leaflet-control.legend-depth-box i{
-  width: 18px !important;
-  height: 18px !important;
-  display: inline-block !important;
-  margin-right: 8px !important;
-  vertical-align: middle !important;
-  float: none !important;
-}
-
-.protocol-group-title{
-  font-weight: 700 !important;
+#monthly_plot_title{
   font-size: 15px;
-  margin: 14px 0 8px 0;
-  color: #0b2a2a;
+  font-weight: 600;
+  margin-bottom: 4px;
+  line-height: 1.2;
 }
 
-/* remove the extra top offset */
-.protocol-details-wrap { margin-top: 0 !important; }
-
-/* only the FIRST section title gets no top margin */
-.protocol-details-wrap .protocol-group-title:first-of-type{
-  margin-top: 0 !important;
+#monthly_plot_subtitle{
+  font-size: 12px;
+  color: #444;
+  margin-bottom: 2px;
+  line-height: 1.2;
 }
 
-/* normal spacing for every section title */
-.protocol-group-title{
-  font-weight: 700;
-  margin: 14px 0 8px 0;   /* <-- this is the separation you lost */
+/* remove default leaflet control margins when we manually position items */
+#monthly_plot_control{
+  margin: 0 !important;
 }
 
-/* but DON'T push the first title down */
-.protocol-details-wrap .protocol-group-title:first-of-type{
-  margin-top: 0;
+.leaflet-control.legend-richness-box,
+.leaflet-control.legend-depth-box{
+  margin: 0 !important;
 }
 
-.protocol-grid { margin-bottom: 10px; }
+/* remove leaflet's default control spacing */
+#monthly_plot_control,
+.leaflet-control.legend-richness-box,
+.leaflet-control.legend-depth-box{
+  margin: 0 !important;
+}
 
+/* when we manually reposition legends, absolute positioning behaves more predictably */
+.leaflet-right .leaflet-control.legend-richness-box,
+.leaflet-right .leaflet-control.legend-depth-box{
+  position: absolute !important;
+}
     ")),
-    tags$script(HTML("
-      $(document).on('click', 'a.nav-scroll', function(e){
-        e.preventDefault();
-        var target = $(this).data('target');
-        var el = document.getElementById(target);
-        if(el){
-          el.scrollIntoView({behavior:'smooth', block:'start'});
-        }
-      });
 
-      Shiny.addCustomMessageHandler('openFloating', function(message) {
-        var $body = $('#floating_body');
-        if ($body.length && !$body.hasClass('in')) {
-          $body.collapse('show');
-          $('#floating_toggle').attr('aria-expanded', 'true');
-        }
+      tags$script(HTML("
+$(function(){
+
+  // Smooth scroll navbar
+  $(document).on('click', 'a.nav-scroll', function(e){
+    e.preventDefault();
+    var target = $(this).data('target');
+    var el = document.getElementById(target);
+    if(el){
+      el.scrollIntoView({behavior:'smooth', block:'start'});
+    }
+  });
+
+    // Ensure Bootstrap 3 collapse is initialized on our target (prevents silent no-op)
+  function ensureCollapseInit(){
+    var $body = $('#floating_body');
+    if(!$body.length) return;
+
+    if (typeof $body.collapse === 'function') {
+      // Initialize plugin without toggling
+      $body.collapse({ toggle: false });
+    }
+  }
+
+  function clampFloatingToMap(){
+    var $p = $('#floating_panel');
+    var $wrap = $('#map_wrap');
+    if(!$p.length || !$wrap.length) return;
+
+    var PAD = 14;
+
+    var wrapW = $wrap.innerWidth();
+    var wrapH = $wrap.innerHeight();
+
+    $p.css({
+      'max-width':  (wrapW - PAD*2) + 'px',
+      'max-height': (wrapH - PAD*2) + 'px'
+    });
+
+    var pos = $p.position();
+    var pW  = $p.outerWidth();
+    var pH  = $p.outerHeight();
+
+    var left = pos.left;
+    var top  = pos.top;
+
+    var minL = PAD;
+    var minT = PAD;
+    var maxL = wrapW - pW - PAD;
+    var maxT = wrapH - pH - PAD;
+
+    if(maxL < minL) maxL = minL;
+    if(maxT < minT) maxT = minT;
+
+    left = Math.min(Math.max(left, minL), maxL);
+    top  = Math.min(Math.max(top,  minT), maxT);
+
+    $p.css({ left: left + 'px', top: top + 'px' });
+  }
+
+  function setFloatingCollapsedUI(isCollapsed){
+    var $p = $('#floating_panel');
+    var $toggle = $('#floating_toggle');
+    if(!$p.length || !$toggle.length) return;
+
+    if(isCollapsed){
+      if($('#floating_body').hasClass('in')){
+        $p.data('open_h', $p.outerHeight());
+      }
+
+      $p.addClass('is-collapsed');
+
+      var headerH = $toggle.outerHeight(true) + 2;
+      if($p.hasClass('ui-resizable')){
+        $p.resizable('option', 'minHeight', headerH);
+      }
+      $p.css({ height: headerH + 'px' });
+
+    } else {
+    $p.removeClass('is-collapsed');
+
+    if($p.hasClass('ui-resizable')){
+      $p.resizable('option', 'minHeight', 180);
+    }
+
+    // If we've never been opened before, pick a sane default height
+    var oh = $p.data('open_h');
+    if(!oh){
+      var $wrap = $('#map_wrap');
+      var wrapH = $wrap.length ? $wrap.innerHeight() : 700;
+      oh = wrapH * 0.99;
+      $p.data('open_h', oh);
+    }
+    $p.css({ height: oh + 'px' });
+  }
+
+    setTimeout(clampFloatingToMap, 0);
+  }
+
+  function enableFloatingResize(){
+    var $p = $('#floating_panel');
+    if(!$p.length) return;
+
+    // IMPORTANT: we control draggable here. So set absolutePanel(draggable=FALSE).
+    if($p.hasClass('ui-draggable')){
+      $p.draggable('option', 'containment', '#map_wrap');
+      $p.draggable('option', 'handle', '#floating_toggle');
+    } else {
+      $p.draggable({ containment: '#map_wrap', handle: '#floating_toggle' });
+    }
+
+    if(!$p.hasClass('ui-resizable')){
+      $p.resizable({
+        handles: 'e,s,se',
+        minWidth: 320,
+        minHeight: 200,
+        containment: '#map_wrap'
       });
+    } else {
+      $p.resizable('option', 'containment', '#map_wrap');
+    }
+
+    $p.off('dragstop.clamp').on('dragstop.clamp', clampFloatingToMap);
+    $p.off('resizestop.clamp').on('resizestop.clamp', clampFloatingToMap);
+
+    $(window).off('scroll.clampFloating').on('scroll.clampFloating', clampFloatingToMap);
+    $(window).off('resize.clampFloating').on('resize.clampFloating', clampFloatingToMap);
+
+    setTimeout(clampFloatingToMap, 0);
+    setTimeout(clampFloatingToMap, 250);
+  }
+
+  function initFloatingPanel(){
+    ensureCollapseInit();
+    enableFloatingResize();
+    setFloatingCollapsedUI(true); // start collapsed
+  }
+
+  $(document).on('shiny:connected', initFloatingPanel);
+  initFloatingPanel();
+
+  // Bootstrap 3 collapse events
+  $(document).on('hide.bs.collapse', '#floating_body', function(){
+    setFloatingCollapsedUI(true);
+  });
+
+  $(document).on('hidden.bs.collapse', '#floating_body', function(){
+    enableFloatingResize();
+    setFloatingCollapsedUI(true);
+    clampFloatingToMap();
+  });
+
+  $(document).on('shown.bs.collapse', '#floating_body', function(){
+    enableFloatingResize();
+    setFloatingCollapsedUI(false);
+    clampFloatingToMap();
+  });
+
+  // Custom message to open the panel
+  Shiny.addCustomMessageHandler('openFloating', function(message){
+    var $p    = $('#floating_panel');
+    var $body = $('#floating_body');
+    var $tog  = $('#floating_toggle');
+    if(!$p.length || !$body.length || !$tog.length) return;
+
+     ensureCollapseInit();  // <<< add this too (safe)
+
+    if($body.hasClass('in')){
+      $tog.attr('aria-expanded','true');
+      setFloatingCollapsedUI(false);
+      enableFloatingResize();
+      clampFloatingToMap();
+      return;
+    }
+
+    $body.one('shown.bs.collapse.openFloating', function(){
+      $tog.attr('aria-expanded','true');
+      requestAnimationFrame(function(){
+        enableFloatingResize();
+        setFloatingCollapsedUI(false);
+        clampFloatingToMap();
+      });
+    });
+
+    if(typeof $body.collapse === 'function'){
+      $body.collapse('show');
+    } else {
+      $body.addClass('in').css('display','block');
+      $body.trigger('shown.bs.collapse');
+    }
+  });
+});
+
     "))
-  ),
+    ),
+
 
   # ---- REAL NAVBAR ----
   tags$nav(
@@ -1355,10 +1876,13 @@ transform: rotate(180deg);
       tags$ul(
         class = "nav navbar-nav",
         tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_map",    "Map")),
-        tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_sara",   "SAR/AIS Detection")),
-        tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_method", "Method Comparison")),
+        tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_sara",   "Detection Details")),
+        #tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_method", "Method Comparison")),
+        tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_datsel", "Data Selection and Download")),
         tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_div",    "Diversity Metrics")),
-        tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_pie",    "Taxonomic Pie Chart"))
+        tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_pie",    "Taxonomic Pie Chart")),
+        #tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_dwnld",    "Download Data File")),
+        #tags$li(tags$a(class="nav-scroll", href="#", `data-target`="sec_refdat",    "Reference Data Authorship")),
       )
     )
   ),
@@ -1370,9 +1894,17 @@ transform: rotate(180deg);
       id = "map_wrap",
       leafletOutput("map"),
 
+      div(
+        id = "monthly_plot_control",
+        class = "leaflet-control",
+        div(id = "monthly_plot_title", "Monthly samples collected"),
+        div(id = "monthly_plot_subtitle", textOutput("monthly_plot_subtitle", inline = TRUE)),
+        plotOutput("monthly_circular_plot", height = "320px", width = "340px")
+      ),
+
       absolutePanel(
         id = "floating_panel",
-        fixed = FALSE, draggable = TRUE,
+        fixed = FALSE, draggable = FALSE,
         top = 10, left = 70, width = 360,
 
         tags$button(
@@ -1384,7 +1916,7 @@ transform: rotate(180deg);
           `aria-expanded` = "false",
           `aria-controls` = "floating_body",
           tagList(
-            tags$span("Select a site"),
+            tags$span("Select a Site"),
             tags$span(class = "caret-icon", HTML("&#9662;"))
           )
         ),
@@ -1396,271 +1928,1046 @@ transform: rotate(180deg);
             class = "panel-body",
             h4("Filter"),
             selectInput(
-                "sel_year", 
+                "sel_year",
                 "Year",
                 choices = c("All"), #use this code if you don't want to be able to select more than one year at a time
                 selected = "All"),
-                
+
                 #choices  = "All",  #use this code to be able to select more than one year at a time
                 #selected = "All",
                 #multiple = TRUE
                 #),
-              
+
             h4("Group"),
+
+            # --- Row 1: 4 across ---
             div(
-              class = "filter-btn-grid",
-              actionButton("total_fish",       "Fishes",     class = "btn btn-default filter-btn"),
-              actionButton("total_mammals",    "Mammals",    class = "btn btn-default filter-btn"),
-              actionButton("total_reptiles",   "Reptiles",   class = "btn btn-default filter-btn"),
-              actionButton("total_birds",      "Birds",      class = "btn btn-default filter-btn"),
-              actionButton("total_molluscs",   "Molluscs",   class = "btn btn-default filter-btn"),
-              actionButton("total_arthropods", "Arthropods", class = "btn btn-default filter-btn"),
-              actionButton("total_plants",     "Plants",     class = "btn btn-default filter-btn"),
-              actionButton("SARA",             "SARA",       class = "btn btn-default filter-btn"),
-              actionButton("AIS",              "AIS",        class = "btn btn-default filter-btn")
+              class = "filter-btn-grid-4",
+              actionButton("total_fish",     "Fishes",        class = "btn btn-default filter-btn"),
+              actionButton("total_sharks",   "Sharks & Rays", class = "btn btn-default filter-btn"),
+              actionButton("total_mammals",  "Mammals",       class = "btn btn-default filter-btn"),
+              actionButton("total_reptiles", "Turtles",      class = "btn btn-default filter-btn")
             ),
+
+            tags$div(style="height:8px;"),  # optional spacing between rows
+
+            # --- Row 2: 4 across ---
+            div(
+              class = "filter-btn-grid-4",
+              actionButton("total_birds",      "Birds",       class = "btn btn-default filter-btn"),
+              actionButton("total_molluscs",   "Molluscs",    class = "btn btn-default filter-btn"),
+              actionButton("total_arthropods", "Arthropods",  class = "btn btn-default filter-btn"),
+              actionButton("total_plants",     "Plants",      class = "btn btn-default filter-btn")
+            ),
+
+            tags$div(style="height:8px;"),
+
+            # --- Row 3: 2 across ---
+            div(
+              class = "filter-btn-grid-2",
+              actionButton("SARA", "SARA", class = "btn btn-default filter-btn filter-btn-short"),
+              actionButton("AIS",  "AIS",  class = "btn btn-default filter-btn filter-btn-short")
+            ),
+
             hr(),
-            h4("Species list"),
-            uiOutput("species_panel")
+            h4("Species List"),
+              uiOutput("species_panel")
           )
         )
       )
     )
   ),
 
-  # ---- SARA/AIS SECTION ----
+  # ---- DETECTION TABLE SECTION ----
   div(
     id = "sec_sara", class = "scroll-section",
     tabsetPanel(
-      tabPanel("SARA Details: Schedule 1", DT::DTOutput("sara_details")),
-      tabPanel("AIS Details",             DT::DTOutput("ais_details")),
-      tabPanel("Detections",              DT::DTOutput("detections_tbl"))
+      tabPanel("Detection Details",              DT::DTOutput("detections_tbl")),
+      tabPanel("Species At Risk Act (SARA): Schedule 1 Details", DT::DTOutput("sara_details")),
+      tabPanel("Aquatic Invasive Species (AIS) Details",             DT::DTOutput("ais_details"))
     )
   ),
 
-  # ---- METHOD COMPARISON SECTION ----
+    # ---- DATA SELECTION SECTION ----
   div(
-    id = "sec_method", class = "scroll-section",
-    h3("Method Comparison"),
+    id = "sec_datsel", class = "scroll-section",
+    h3("Data Selection and Download"),
 
     div(
-      id = "data_request_wrap",
-      style = "padding: 10px 12px; background: rgba(255,255,255,0.92);
-               border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-               margin-bottom: 10px;",
-      h4("Data Request"),
-      fluidRow(
-        column(
-          width = 4,
-          selectInput("req_location", "Location",                                         #Remove later once linked to OBIS
-                      choices = character(0), selected = NULL, selectize = FALSE),        #Remove later once linked to OBIS
-          selectInput("req_protocol", "ProtocolID",
-                      choices = character(0), selected = NULL, selectize = FALSE)
-        ),
-        column(
-          width = 8,
-          uiOutput("protocol_details")
-        )
-      )
-    )
-  ),
+      class = "data-select-grid",
 
-    div(
-      id = "sec_div", class = "scroll-section",
-      h3("Diversity Metrics"),
-
-      #tags$p(tags$strong("Alpha diversity (boxplot): "), "I want to include the following alpha metrics as a dropdown: Observed, Chao1, Shannon, Simpson, Fisher, InvSimpson, ACE"),   #include if we want written discriptions as part of this section
-      #tags$p(tags$strong("Beta diversity (PCoA): "), "I want to include the following beta metrics as a dropdown: Bray, Jaccard, Euclidean, Aitchison"),
-
-      fluidRow(
-        column(
-        width = 2,
+      div(
+        class = "data-select-item",
         selectInput(
           "tax_rank",
-          "Taxonomic Rank",
+          "Taxonomy selection",
           choices = c(
-            "Species"      = "scientificName",
-            "Genus"        = "genus",
-            "Family"       = "family",
-            "Order"        = "order",
-            "Class"        = "class",
-            "Phylum"       = "phylum",
-            "Kingdom"      = "kingdom"
+            "Kingdom" = "kingdom",
+            "Phylum"  = "phylum",
+            "Class"   = "class",
+            "Order"   = "order",
+            "Family"  = "family",
+            "Genus"   = "genus",
+            "Species" = "scientificName"
           ),
           selected = "scientificName"
         )
       ),
 
-    column(
-      width = 2,
-      selectInput(
-        "alpha_metric",
-        "Alpha Diversity",
-        choices = c(
-          "Observed (Richness)" = "observed",
-          "Shannon"             = "shannon",
-          "Simpson"             = "simpson",
-          "InvSimpson"          = "invsimpson",
-          "ACE"                 = "ace"
+      div(
+        class = "data-select-item",
+        selectizeInput(
+          "div_target_gene",
+          "Target gene",
+          choices = NULL,
+          selected = NULL,
+          multiple = TRUE,
+          options = list(
+            plugins = list("remove_button"),
+            placeholder = "Select target gene(s)"
+          )
+        )
+      ),
+
+      div(
+        class = "data-select-item",
+        selectizeInput(
+          "div_primer",
+          "Primer",
+          choices = NULL,
+          selected = NULL,
+          multiple = TRUE,
+          options = list(
+            plugins = list("remove_button"),
+            placeholder = "Select primer(s)"
+          )
         ),
-        selected = "observed"
-      )
-     )
-    ),
-
-    # ---- Alpha plot (full width row) ----
-    fluidRow(
-      column(
-        width = 10,
-        offset = 1,
-        plotly::plotlyOutput("alpha_boxplot", height = "720px")
-      )
-    ),
-
-    # ---- Beta plot (full width row) ----
-    fluidRow(
-      column(
-        width = 10,
-        offset = 1,
-        plotly::plotlyOutput("beta_pcoa", height = "720px")
+        div(
+          class = "primer-btn-row",
+          actionButton("div_primer_all", "Select all", class = "btn btn-default btn-sm"),
+          actionButton("div_primer_none", "Deselect all", class = "btn btn-default btn-sm")
+        )
+      ),
+      div(
+        class = "data-select-item confirm-slot",
+        div(
+          class = "confirm-btn-row",
+          actionButton(
+            "div_apply",
+            "Confirm",
+            class = "btn btn-primary"
+          ),
+          downloadButton(
+            "downloadData",
+            "Download Data",
+            class = "btn-download-got"
+          )
+        )
       )
     )
   ),
 
+    #   #tags$p(tags$strong("Alpha diversity (boxplot): "), "I want to include the following alpha metrics as a dropdown: Observed, Chao1, Shannon, Simpson, Fisher, InvSimpson, ACE"),   #include if we want written discriptions as part of this section
+    #   #tags$p(tags$strong("Beta diversity (PCoA): "), "I want to include the following beta metrics as a dropdown: Bray, Jaccard, Euclidean, Aitchison"),
+
+  # ---- DIVERSITY METRICS SECTION ----
   div(
-    id="sec_pie", class="scroll-section",
+    id = "sec_div", class = "scroll-section",
+    h3("Diversity Metrics"),
+
+    div(
+      class = "data-select-grid",
+
+      div(
+        class = "data-select-item",
+        selectInput(
+          "alpha_metric",
+          "Alpha Diversity",
+          choices = c(
+            "Observed (Richness)" = "observed",
+            "Shannon"             = "shannon",
+            "Simpson"             = "simpson",
+            "InvSimpson"          = "invsimpson",
+            "ACE"                 = "ace"
+          ),
+          selected = "observed"
+        )
+      ),
+
+      div(class = "data-select-item"),
+      div(class = "data-select-item"),
+      div(class = "data-select-item")
+    )
+  ),
+
+      #tags$p(tags$strong("Alpha diversity (boxplot): "), "I want to include the following alpha metrics as a dropdown: Observed, Chao1, Shannon, Simpson, Fisher, InvSimpson, ACE"),   #include if we want written discriptions as part of this section
+      #tags$p(tags$strong("Beta diversity (PCoA): "), "I want to include the following beta metrics as a dropdown: Bray, Jaccard, Euclidean, Aitchison"),
+
+    # ---- Alpha plot (full width row) ----
+  fluidRow(
+    column(
+      width = 8,
+      offset = 2,
+      shinycssloaders::withSpinner(
+        plotly::plotlyOutput("alpha_boxplot", height = "700px"),
+        type = 4
+      )
+    )
+  ),
+
+    # ---- Beta plot (full width row) ----
+  div(
+    class = "data-select-grid",
+
+    div(
+      class = "data-select-item",
+      selectInput(
+        "beta_metric",
+        "Beta Diversity",
+        choices = c(
+          "Bray-Curtis" = "bray",
+          "Jaccard"     = "jaccard",
+          "Euclidean"   = "euclidean",
+          "Robust Aitchison"  = "robust.aitchison"
+        ),
+        selected = "bray"
+      )
+    ),
+
+    div(class = "data-select-item"),
+    div(class = "data-select-item"),
+    div(class = "data-select-item")
+  ),
+
+  # ---- Beta plot ----
+  fluidRow(
+    column(
+      width = 9,
+      offset = 2,
+      shinycssloaders::withSpinner(
+        plotly::plotlyOutput("beta_pcoa", height = "700px"),
+        type = 4
+      )
+    )
+  ),
+
+  # ---- Taxonomic Pie Chart ----
+  div(
+    id = "sec_pie", class = "scroll-section",
     h3("Taxonomic Pie Chart"),
 
-    taxplore::KronaChartOutput("tax_krona", height = "670px"))
+    shinycssloaders::withSpinner(
+      taxplore::KronaChartOutput("tax_krona", height = "700px"),
+      type = 4
+    )
+  )
 )
+
+#   # ---- Download Data Option ----
+#   div(
+#     id = "sec_dwnld", class = "scroll-section",
+#     style = "
+#     min-height: 820px;
+#     width: 100%;
+#     max-width: 1000px;
+#     margin: 0 auto;
+#     padding: 40px 20px;
+#     display: flex;
+#     align-items: center;
+#     justify-content: center;
+#   ",
+#
+#     div(
+#       style = "
+#       width: 100%;
+#       max-width: 700px;
+#       min-height: 260px;
+#       text-align: center;
+#       padding: 40px 30px;
+#       background: #2241a7;
+#       color: white;
+#       border-radius: 8px;
+#       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+#       display: flex;
+#       flex-direction: column;
+#       justify-content: center;
+#     ",
+#       h3("Download Data File"),
+#       p("Download a CSV filtered by the current floating-panel and diversity-metrics selections."),
+#       br(),
+#       downloadButton("downloadData", "Download Filtered Data", class = "btn-download-got")
+#     )
+#   )
+# )
+#
+#   # ---- Reference Data Authorship ----
+#
+#   div(
+#     id="sec_refdat", class="scroll-section",
+#     h3("Reference Data Authorship"),
+#
+#   )
+# )
 
 
 ## ---- 3) Server ----
 
 server <- function(input, output, session){
-  
+
   `%||%` <- function(x, y) if (is.null(x)) y else x
-  
-  dat <- APP_DATA
 
-  occ_all          <- dat$occ_all
-  KEY_TBL          <- dat$KEY_TBL
-  sampling_pts     <- dat$sampling_pts
-  species_sf_all   <- dat$species_sf_all
-  grid_clip        <- dat$grid_clip
-  RICHNESS_BY_KEY  <- dat$RICHNESS_BY_KEY
-  RICHNESS_ALL     <- dat$RICHNESS_ALL
-  RICHNESS_ALL_BY_YEAR <- dat$RICHNESS_ALL_BY_YEAR
-  depth_layers     <- dat$depth_layers
-  all_polys_click  <- dat$all_polys_click
-  all_polys_zones  <- dat$all_polys_zones
-  pal_rich         <- dat$pal_rich
+  species_cache <- reactiveValues(data = list())
 
-  # ---- Data Request: use occ_all directly ----
+  make_species_cache_key <- function(selected_key, year, groups, sara_on, ais_on) {
+    paste(
+      selected_key,
+      year,
+      paste(sort(groups), collapse = "|"),
+      paste0("sara=", sara_on),
+      paste0("ais=", ais_on),
+      sep = "~~"
+    )
+  }
 
-  meta_all <- reactive({
-    req(occ_all)
-    df <- occ_all
+  get_species_by_layer_cached <- function(selected_key, det_sf, year, groups, sara_on, ais_on) {
 
-    df %>%
+    cache_key <- make_species_cache_key(
+      selected_key = selected_key,
+      year         = year,
+      groups       = groups,
+      sara_on      = sara_on,
+      ais_on       = ais_on
+    )
+
+    if (!is.null(species_cache$data[[cache_key]])) {
+      return(species_cache$data[[cache_key]])
+    }
+
+    det_f <- apply_species_filters(det_sf) %>%
+      sf::st_drop_geometry() %>%
       dplyr::mutate(
-        Location   = if ("Location" %in% names(.)) as.character(Location) else NA_character_,
-        ProtocolID = if ("ProtocolID" %in% names(.)) as.character(ProtocolID) else NA_character_
+        scientificName = as.character(scientificName),
+        target_gene    = as.character(target_gene)
       )
-  })
 
-  # ---- Dynamic Year dropdown from available data ----
-
-  # ---- Year dropdown updates to only years present in current selection ----
-  observeEvent(
-    list(selection_geom(), species_sf_all),
-    {
-      pts <- species_sf_all
-      shiny::req(pts)
-
-      g <- selection_geom()
-
-      # If there is a selection geometry, filter points inside it; else use all points
-      if (!is.null(g)) {
-        inside <- pts[sf::st_within(pts, g, sparse = FALSE), , drop = FALSE]
-      } else {
-        inside <- pts
-      }
-
-      yrs <- inside %>%
-        sf::st_drop_geometry() %>%
-        dplyr::pull(year) %>%
-        as.character() %>%
+    out <- list(
+      All = det_f %>%
+        dplyr::pull(scientificName) %>%
         unique() %>%
-        na.omit() %>%
+        stats::na.omit() %>%
         sort()
+    )
 
-      # Keep current selection if still valid; otherwise reset to "All"
-      cur <- input$sel_year %||% "All"
-      cur <- as.character(cur)
-      new_choices <- c("All", yrs)
+    for (g in c("12S", "COI", "16S", "18S")) {
+      out[[g]] <- det_f %>%
+        dplyr::filter(target_gene == g) %>%
+        dplyr::pull(scientificName) %>%
+        unique() %>%
+        stats::na.omit() %>%
+        sort()
+    }
 
-      new_selected <- if (cur %in% new_choices) cur else "All"
+    species_cache$data[[cache_key]] <- out
+    out
+  }
 
-      updateSelectInput(
-        session,
-        "sel_year",
-        choices  = new_choices,
-        selected = new_selected
-      )
-    },
-    ignoreInit = FALSE
+  inside_cache <- reactiveValues(data = list())
+
+  make_inside_cache_key <- function(selected_key, year) {
+    paste(selected_key, year, sep = "~~")
+  }
+
+  get_inside_cached <- function(selected_key, pts, geom, year) {
+    cache_key <- make_inside_cache_key(selected_key, year)
+
+    if (!is.null(inside_cache$data[[cache_key]])) {
+      return(inside_cache$data[[cache_key]])
+    }
+
+    inside <- pts[within_any(pts, geom), , drop = FALSE]
+    inside_cache$data[[cache_key]] <- inside
+    inside
+  }
+
+  get_forward_primer_col <- function(df) {
+    cand <- c("pcr_primer_name_forward", "pcr_primer_forward")
+    hit <- intersect(cand, names(df))
+    if (length(hit) == 0) return(NULL)
+    hit[1]
+  }
+
+  get_reverse_primer_col <- function(df) {
+    cand <- c("pcr_primer_name_reverse", "pcr_primer_reverse")
+    hit <- intersect(cand, names(df))
+    if (length(hit) == 0) return(NULL)
+    hit[1]
+  }
+
+  add_primer_combo <- function(df) {
+    fwd_col <- get_forward_primer_col(df)
+    rev_col <- get_reverse_primer_col(df)
+
+    if (is.null(fwd_col) && is.null(rev_col)) {
+      df$primer_combo <- NA_character_
+      return(df)
+    }
+
+    fwd <- if (!is.null(fwd_col)) as.character(df[[fwd_col]]) else rep(NA_character_, nrow(df))
+    rev <- if (!is.null(rev_col)) as.character(df[[rev_col]]) else rep(NA_character_, nrow(df))
+
+    fwd <- trimws(fwd)
+    rev <- trimws(rev)
+
+    fwd[fwd == ""] <- NA_character_
+    rev[rev == ""] <- NA_character_
+
+    df$primer_combo <- dplyr::case_when(
+      !is.na(fwd) & !is.na(rev) ~ paste(fwd, rev, sep = " | "),
+      !is.na(fwd) &  is.na(rev) ~ fwd,
+      is.na(fwd) & !is.na(rev) ~ rev,
+      TRUE ~ NA_character_
+    )
+
+    df
+  }
+
+  apply_diversity_dropdown_filters <- function(df, filters) {
+    df <- add_primer_combo(df)
+
+    if (length(filters$target_gene) > 0) {
+      df <- df %>%
+        dplyr::filter(as.character(target_gene) %in% filters$target_gene)
+    }
+
+    if (length(filters$primers) > 0) {
+      df <- df %>%
+        dplyr::filter(primer_combo %in% filters$primers)
+    }
+
+    df
+  }
+
+  within_any <- function(x_sf, geom) {
+    if (is.null(geom) || nrow(x_sf) == 0) {
+      return(rep(FALSE, nrow(x_sf)))
+    }
+
+    if (inherits(geom, "sfc")) {
+      geom <- sf::st_sf(geometry = geom)
+    }
+
+    if (sf::st_crs(x_sf) != sf::st_crs(geom)) {
+      geom <- sf::st_transform(geom, sf::st_crs(x_sf))
+    }
+
+    lengths(sf::st_intersects(x_sf, geom)) > 0
+  }
+
+  # store ALL drawn polygons (one row per polygon), with a stable id
+  empty_drawn_sf <- sf::st_sf(
+    draw_id    = character(0),
+    draw_label = character(0),
+    geometry   = sf::st_sfc(crs = 4326)
   )
 
-  # Leaflet polygon click input is typically input$map_shape_click
-  observeEvent(input$map_shape_click, {
-    req(input$map_shape_click)
+  drawn_polys <- reactiveVal(empty_drawn_sf)
+  selected_draw_id <- reactiveVal(NULL)
 
-    # whenever a user selects an MPA/AOI (polygon click), open the floating panel
-    session$sendCustomMessage("openFloating", list())
+  detections_filtered <- reactive({
+    det <- selected_detections()
+    if (is.null(det) || nrow(det) == 0) return(NULL)
+
+    det %>%
+      apply_species_filters()
   })
+
+  # ---- helper: convert leaflet.draw feature -> sf polygon (EPSG:4326) ----
+  feature_to_sf <- function(feature) {
+    req(feature$geometry$type)
+    type <- feature$geometry$type
+    coords <- feature$geometry$coordinates
+
+    close_ring <- function(mat) {
+      if (!all(mat[1, ] == mat[nrow(mat), ])) {
+        mat <- rbind(mat, mat[1, , drop = FALSE])
+      }
+      mat
+    }
+
+    if (type == "Polygon") {
+      rings <- lapply(coords, function(ring) {
+        mat <- do.call(rbind, lapply(ring, function(x) c(x[[1]], x[[2]])))
+        close_ring(mat)
+      })
+
+      poly <- sf::st_polygon(rings)
+      out  <- sf::st_sf(geometry = sf::st_sfc(poly, crs = 4326))
+      return(sf::st_make_valid(out))
+    }
+
+    if (type == "MultiPolygon") {
+      mp <- lapply(coords, function(poly_i) {
+        lapply(poly_i, function(ring) {
+          mat <- do.call(rbind, lapply(ring, function(x) c(x[[1]], x[[2]])))
+          close_ring(mat)
+        })
+      })
+
+      geom <- sf::st_multipolygon(mp)
+      out  <- sf::st_sf(geometry = sf::st_sfc(geom, crs = 4326))
+      return(sf::st_make_valid(out))
+    }
+
+    stop("Drawn feature type not supported: ", type)
+  }
+
+  # ---- selection geometry (drawn polygon OR clicked polygon OR clicked grid cell) ----
+  selection_geom <- reactive({
+    sel_id <- selected_draw_id()
+    if (!is.null(sel_id)) {
+      polys <- drawn_polys()
+      hit <- polys %>% dplyr::filter(draw_id == sel_id)
+      if (nrow(hit) > 0) return(sf::st_geometry(hit))
+    }
+
+    click <- input$map_shape_click
+    if (is.null(click) || is.null(click$id)) return(NULL)
+
+    if (grepl("\\|\\|", click$id)) {
+      parts <- strsplit(click$id, "\\|\\|")[[1]]
+      p_type <- parts[1]
+      p_name <- parts[2]
+      poly_sel <- all_polys_click %>% dplyr::filter(site_type == p_type, site_name == p_name)
+      if (nrow(poly_sel) == 0) return(NULL)
+      return(sf::st_geometry(poly_sel))
+    }
+
+    cid <- suppressWarnings(as.integer(click$id))
+    if (is.na(cid)) return(NULL)
+
+    cell_poly <- grid_clip %>% dplyr::filter(cell_id == cid)
+    if (nrow(cell_poly) == 0) return(NULL)
+
+    sf::st_geometry(cell_poly)
+  })
+
+  observe({
+    click <- input$map_shape_click
+    proxy <- leafletProxy("map")
+
+    proxy %>% clearGroup("Selection outline")
+
+    if (is.null(click) || is.null(click$id)) return()
+
+    id <- as.character(click$id)
+
+    # only draw white outline for clicked grid cells
+    cid <- suppressWarnings(as.integer(id))
+    if (is.na(cid)) return()
+
+    sel_sf <- grid_clip %>%
+      dplyr::filter(cell_id == cid)
+
+    if (nrow(sel_sf) == 0) return()
+
+    proxy %>%
+      addPolygons(
+        data        = sel_sf,
+        group       = "Selection outline",
+        layerId     = ~paste0("selected_cell_", cell_id),
+        fill        = FALSE,
+        color       = "white",
+        weight      = 3,
+        opacity     = 1,
+        options     = pathOptions(
+          pane = "pane_selected_top",
+          interactive = FALSE
+        )
+      )
+  })
+
+  # ---- Year selection (as character or "All") ----
+  sel_year_chr <- reactive({
+    yr <- input$sel_year %||% "All"
+    as.character(yr)
+  })
+
+  species_gene_summary <- function(det_sf) {
+    det_sf %>%
+      sf::st_drop_geometry() %>%
+      dplyr::mutate(
+        scientificName = as.character(scientificName),
+        target_gene    = as.character(target_gene),
+        samp_name      = as.character(samp_name)
+      ) %>%
+      dplyr::filter(!is.na(scientificName), scientificName != "") %>%
+      dplyr::group_by(scientificName) %>%
+      dplyr::summarise(
+        genes       = paste(sort(unique(na.omit(target_gene))), collapse = ", "),
+        n_detections = dplyr::n(),
+        n_samples    = dplyr::n_distinct(na.omit(samp_name)),
+        .groups = "drop"
+      ) %>%
+      dplyr::arrange(scientificName)
+  }
+
+  # --- Is the Sampling points layer currently visible? ---
+  sampling_points_layer_on <- reactive({
+    groups_on <- input$map_groups %||% character(0)
+    "Sampling points" %in% groups_on
+  })
+
+  # ---- meta table (ensures join keys are character) ----
+  meta_all <- reactive({
+    req(occ_all)
+    occ_all %>%
+      dplyr::mutate(
+        occurrenceID = as.character(occurrenceID)
+      )
+  })
+
+  # Which richness layers are currently ON (including "All")
+  active_richness_layers <- reactive({
+    groups_on <- input$map_groups %||% character(0)
+    intersect(groups_on, c("All","12S","COI","16S","18S"))
+  })
+
+  make_list <- function(vec, max_h = 220) {
+    if (length(vec) == 0) return(em("No species detected for this layer."))
+    tags$div(
+      style = paste0("max-height:", max_h, "px; overflow-y:auto; padding-left: 10px;"),
+      tags$ul(lapply(vec, tags$li))
+    )
+  }
+
+  # Return a named list: each name is a layer ("12S", "COI", ... or "All"),
+  # each value is the species vector for that layer
+  species_by_active_layers <- function(det_sf, layers_on, apply_filters_fn) {
+    det_sf <- apply_filters_fn(det_sf)
+
+    out <- list()
+
+    # "All" means no gene filter
+    if ("All" %in% layers_on) {
+      spp_all <- det_sf %>%
+        sf::st_drop_geometry() %>%
+        dplyr::pull(scientificName) %>%
+        as.character() %>%
+        unique() %>%
+        stats::na.omit() %>%
+        sort()
+
+      out[["All"]] <- spp_all
+    }
+
+    # gene-specific lists
+    genes <- setdiff(layers_on, "All")
+    for (g in genes) {
+      spp_g <- det_sf %>%
+        dplyr::filter(as.character(target_gene) == g) %>%
+        sf::st_drop_geometry() %>%
+        dplyr::pull(scientificName) %>%
+        as.character() %>%
+        unique() %>%
+        stats::na.omit() %>%
+        sort()
+
+      out[[g]] <- spp_g
+    }
+
+    out
+  }
+
+  #remove cache of deleted polygons
+  observeEvent(input$map_draw_deleted_features, {
+    del <- input$map_draw_deleted_features
+    if (is.null(del) || is.null(del$features) || length(del$features) == 0) return()
+
+    del_ids <- vapply(del$features, function(f) {
+      if (!is.null(f$properties) && !is.null(f$properties$`_leaflet_id`)) {
+        as.character(f$properties$`_leaflet_id`)
+      } else {
+        NA_character_
+      }
+    }, character(1))
+
+    del_ids <- del_ids[!is.na(del_ids) & nzchar(del_ids)]
+    if (length(del_ids) == 0) return()
+
+    old_keys <- names(species_cache$data)
+    if (length(old_keys) > 0) {
+      keep_keys <- old_keys[!vapply(old_keys, function(k) {
+        any(vapply(del_ids, function(id) grepl(paste0("draw:", id), k, fixed = TRUE), logical(1)))
+      }, logical(1))]
+
+      species_cache$data <- species_cache$data[keep_keys]
+    }
+
+    old_inside_keys <- names(inside_cache$data)
+    if (length(old_inside_keys) > 0) {
+      keep_inside_keys <- old_inside_keys[!vapply(old_inside_keys, function(k) {
+        any(vapply(del_ids, function(id) grepl(paste0("draw:", id), k, fixed = TRUE), logical(1)))
+      }, logical(1))]
+
+      inside_cache$data <- inside_cache$data[keep_inside_keys]
+    }
+
+  })
+
+  # ---- year dropdown: only show years present in current selection geom ----
+  observeEvent(selection_geom(), {
+    pts <- species_sf_min
+    shiny::req(pts)
+    shiny::req(nrow(pts) > 0)
+
+    g <- selection_geom()
+
+    sel_id <- selected_draw_id()
+    click  <- input$map_shape_click
+
+    selected_key <- NULL
+    if (!is.null(sel_id)) {
+      selected_key <- paste0("draw:", sel_id)
+    } else if (!is.null(click$id)) {
+      selected_key <- paste0("click:", click$id)
+    }
+
+    inside <- if (!is.null(g) && !is.null(selected_key)) {
+      get_inside_cached(
+        selected_key = selected_key,
+        pts          = pts,
+        geom         = g,
+        year         = "AllYearsForDropdown"
+      )
+    } else {
+      pts
+    }
+
+    yrs <- inside %>%
+      sf::st_drop_geometry() %>%
+      dplyr::pull(year) %>%
+      as.character() %>%
+      unique() %>%
+      stats::na.omit() %>%
+      sort()
+
+    cur <- as.character(input$sel_year %||% "All")
+    new_choices  <- c("All", yrs)
+    new_selected <- if (cur %in% new_choices) cur else "All"
+
+    updateSelectInput(session, "sel_year", choices = new_choices, selected = new_selected)
+  }, ignoreInit = FALSE)
+
+  observeEvent(input$map_draw_new_feature, {
+    feat <- input$map_draw_new_feature
+    req(feat)
+
+    poly_sf <- tryCatch(
+      feature_to_sf(feat),
+      error = function(e) {
+        showNotification(
+          paste("Could not read drawn polygon:", e$message),
+          type = "error"
+        )
+        return(NULL)
+      }
+    )
+
+    req(!is.null(poly_sf), nrow(poly_sf) > 0)
+
+    fid <- NULL
+    if (!is.null(feat$properties) && !is.null(feat$properties$`_leaflet_id`)) {
+      fid <- as.character(feat$properties$`_leaflet_id`)
+    }
+    if (is.null(fid) || !nzchar(fid)) {
+      fid <- paste0("draw_", as.integer(Sys.time()), "_", sample.int(1e6, 1))
+    }
+
+    cur <- drawn_polys()
+
+    # keep label numbering stable by draw order
+    next_num <- if (nrow(cur) == 0) 1L else {
+      old_nums <- suppressWarnings(as.integer(sub("^Polygon\\s+", "", cur$draw_label)))
+      max(old_nums, na.rm = TRUE) + 1L
+    }
+    if (!is.finite(next_num)) next_num <- 1L
+
+    poly_sf$draw_id    <- fid
+    poly_sf$draw_label <- paste0("Polygon ", next_num)
+
+    if (nrow(cur) > 0) {
+      cur <- cur[!(cur$draw_id %in% fid), , drop = FALSE]
+    }
+
+    drawn_polys(dplyr::bind_rows(cur, poly_sf))
+    selected_draw_id(fid)
+
+    session$sendCustomMessage("openFloating", list(id = fid))
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$map_draw_deleted_features, {
+    del <- input$map_draw_deleted_features
+    if (is.null(del) || is.null(del$features) || length(del$features) == 0) return()
+
+    del_ids <- vapply(del$features, function(f){
+      if (!is.null(f$properties) && !is.null(f$properties$`_leaflet_id`)) {
+        as.character(f$properties$`_leaflet_id`)
+      } else {
+        NA_character_
+      }
+    }, character(1))
+
+    del_ids <- del_ids[!is.na(del_ids) & nzchar(del_ids)]
+    if (length(del_ids) == 0) return()
+
+    cur <- drawn_polys()
+    cur <- cur[!(cur$draw_id %in% del_ids), , drop = FALSE]
+    drawn_polys(cur)
+
+    sid <- selected_draw_id()
+    if (!is.null(sid) && sid %in% del_ids) {
+      if (nrow(cur) > 0) {
+        selected_draw_id(cur$draw_id[nrow(cur)])
+      } else {
+        selected_draw_id(NULL)
+      }
+    }
+  })
+
+  div_gene_initialized <- reactiveVal(FALSE)
+  div_primer_initialized <- reactiveVal(FALSE)
+
+  # Detections that fall inside any MPA/AOI polygon (drops outside points)
+  detections_in_mpa <- reactive({
+    yr <- sel_year_chr()
+
+    pts <- species_sf_all
+    if (yr != "All") pts <- pts %>% dplyr::filter(as.character(year) == yr)
+
+    # spatial join: keep only detections that fall within an MPA/AOI polygon
+    joined <- sf::st_join(
+      pts,
+      all_polys_click %>% dplyr::select(site_name, site_type),
+      join = sf::st_within,
+      left = FALSE
+    )
+
+    # If polygons overlap, a detection could match multiple polygons.
+    # Pick the first match per detection row (safest quick fix).
+    joined %>%
+      arrange(occurrenceID) %>%
+      dplyr::group_by(occurrenceID, samp_name, scientificName, year, target_gene) %>%
+      dplyr::slice(1) %>%
+      dplyr::ungroup()
+  })
+
+  # redraw points when year changes
+  observeEvent(
+    list(sel_year_chr(), sampling_points_layer_on()),
+    {
+      proxy <- leafletProxy("map")
+
+      if (!isTRUE(sampling_points_layer_on())) {
+        proxy %>% clearGroup("Sampling points")
+        return(NULL)
+      }
+
+      yr <- sel_year_chr()
+      pts <- sampling_pts
+
+      # Year filter ONLY
+      if (yr != "All") {
+        pts <- pts %>% dplyr::filter(as.character(year) == yr)
+      }
+
+      proxy %>%
+        clearGroup("Sampling points") %>%
+        addCircleMarkers(
+          data        = pts,
+          group       = "Sampling points",
+          radius      = 2,
+          stroke      = TRUE,
+          weight      = 1,
+          opacity     = 1,
+          fillOpacity = 0.8,
+          options     = pathOptions(pane = "pane_points"),
+          label       = ~paste0(
+            "Marker: ", target_gene,
+            ifelse(is.na(year), "", paste0(" | Year: ", year)),
+            ifelse(is.na(samp_name), "", paste0(" | Sample: ", samp_name))
+          )
+        )
+    },
+    ignoreInit = TRUE
+  )
+
+  #Monthly sampling
+  monthly_sample_counts <- reactive({
+    det <- selected_detections()
+    req(det)
+
+    det0 <- det %>%
+      sf::st_drop_geometry() %>%
+      dplyr::mutate(
+        samp_name = as.character(samp_name),
+        month_chr = as.character(month)
+      )
+
+    shiny::validate(
+      shiny::need(nrow(det0) > 0, "No detections in current selection.")
+    )
+
+    month_levels <- month.abb
+
+    counts <- det0 %>%
+      dplyr::filter(
+        !is.na(samp_name), samp_name != "",
+        !is.na(month_chr), month_chr %in% month_levels
+      ) %>%
+      dplyr::distinct(samp_name, month_chr) %>%
+      dplyr::count(month_chr, name = "n_samples") %>%
+      dplyr::mutate(month_chr = factor(month_chr, levels = month_levels))
+
+    data.frame(
+      month_chr = factor(month_levels, levels = month_levels)
+    ) %>%
+      dplyr::left_join(counts, by = "month_chr") %>%
+      dplyr::mutate(n_samples = dplyr::coalesce(n_samples, 0L))
+  })
+
+  output$monthly_plot_subtitle <- renderText({
+    click <- input$map_shape_click
+    sel_id <- selected_draw_id()
+    yr <- sel_year_chr()
+
+    if (!is.null(sel_id)) {
+      polys <- drawn_polys()
+      hit <- polys %>% dplyr::filter(draw_id == sel_id)
+      lab <- if (nrow(hit) > 0) hit$draw_label[1] else "Drawn polygon"
+      return(paste0(lab, " | Year: ", yr))
+    }
+
+    if (!is.null(click$id)) {
+      if (grepl("\\|\\|", click$id)) {
+        parts <- strsplit(click$id, "\\|\\|")[[1]]
+        return(paste0(parts[2], " | Year: ", yr))
+      }
+
+      cid <- suppressWarnings(as.integer(click$id))
+      if (!is.na(cid)) {
+        return(paste0("Grid cell ", cid, " | Year: ", yr))
+      }
+    }
+
+    paste0("No selection | Year: ", yr)
+  })
+
+  output$monthly_circular_plot <- renderPlot({
+    dat <- monthly_sample_counts()
+
+    shiny::validate(
+      shiny::need(nrow(dat) > 0, "No monthly data available."),
+      shiny::need(sum(dat$n_samples, na.rm = TRUE) > 0, "No samples available for this selection.")
+    )
+
+    dat <- dat %>%
+      dplyr::mutate(
+        month_chr = factor(month_chr, levels = month.abb),
+        fill_group = ifelse(n_samples == 0, "zero", "nonzero")
+      )
+
+    ymax <- max(dat$n_samples, na.rm = TRUE)
+
+    # overall scale for the outer ring area
+    outer_max <- max(1, ceiling(ymax * 1.10))
+
+    # creates the empty hole in the middle
+    inner_offset <- outer_max * 0.42
+
+    # where month labels sit (further outside the circle)
+    label_radius <- outer_max * 1.28
+
+    # extra space beyond labels so they do not get clipped
+    top_pad <- outer_max * 0.06
+
+    # positions of circular guide rings
+    ring_vals <- c(0, 0.25, 0.50, 0.75, 1.00) * outer_max + inner_offset
+
+    ggplot2::ggplot(
+      dat,
+      ggplot2::aes(
+        x = month_chr,
+        y = n_samples + inner_offset,
+        fill = fill_group
+      )
+    ) +
+
+      # circular guide rings
+      ggplot2::geom_hline(
+        yintercept = ring_vals,
+        colour = "grey80",
+        linewidth = 0.5
+      ) +
+
+      # bars
+      ggplot2::geom_col(
+        width = 0.88,
+        colour = NA
+      ) +
+
+      # value labels near the bar ends
+      ggplot2::geom_text(
+        ggplot2::aes(
+          y = n_samples + inner_offset + outer_max * 0.10,
+          label = n_samples
+        ),
+        size = 3.5,
+        color = "black"
+      ) +
+
+      # month labels farther outside the rings
+      ggplot2::geom_text(
+        data = dat,
+        ggplot2::aes(
+          x = month_chr,
+          y = inner_offset + label_radius,
+          label = month_chr
+        ),
+        inherit.aes = FALSE,
+        size = 5,
+        color = "black"
+      ) +
+
+      ggplot2::coord_polar(start = -pi / 12) +
+
+      ggplot2::scale_y_continuous(
+        limits = c(0, inner_offset + label_radius + top_pad),
+        expand = c(0, 0)
+      ) +
+
+      ggplot2::scale_fill_manual(
+        values = c(
+          zero = "white",     # grey for zero months
+          nonzero = "#2241a7"   # blue for sampled months
+        ),
+        guide = "none"
+      ) +
+
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(
+        axis.title = ggplot2::element_blank(),
+        axis.text.y = ggplot2::element_blank(),
+        axis.text.x = ggplot2::element_blank(),
+        axis.ticks = ggplot2::element_blank(),
+        panel.grid = ggplot2::element_blank(),
+        plot.background = ggplot2::element_rect(fill = NA, colour = NA),
+        panel.background = ggplot2::element_rect(fill = NA, colour = NA),
+        plot.margin = ggplot2::margin(2, 6, 2, 6)
+      )
+  }, res = 110)
 
   # your existing outputs here:
   output$cell_summary   <- renderUI({ tags$div("...") })
-
-
-  # Populate Location dropdown once meta_all is available
-  observeEvent(meta_all(), {
-    df <- meta_all()
-
-    locs <- df %>%
-      dplyr::filter(!is.na(Location), Location != "") %>%
-      dplyr::distinct(Location) %>%
-      dplyr::arrange(Location) %>%
-      dplyr::pull(Location)
-
-    updateSelectInput(
-      session, "req_location",
-      choices  = locs,
-      selected = if (length(locs)) locs[[1]] else NULL
-    )
-  }, ignoreInit = FALSE)
-
-  # Populate ProtocolID dropdown (filtered by selected Location)
-  observeEvent(list(meta_all(), input$req_location), {
-    df <- meta_all()
-
-    if (!is.null(input$req_location) && nzchar(input$req_location)) {
-      df <- df %>% dplyr::filter(Location == input$req_location)
-    }
-
-    prots <- df %>%
-      dplyr::filter(!is.na(ProtocolID), ProtocolID != "") %>%
-      dplyr::distinct(ProtocolID) %>%
-      dplyr::arrange(ProtocolID) %>%
-      dplyr::pull(ProtocolID)
-
-    updateSelectInput(
-      session, "req_protocol",
-      choices  = prots,
-      selected = if (length(prots)) prots[[1]] else NULL
-    )
-  }, ignoreInit = FALSE)
 
   # helper: pick a single display value (unique or collapse)
   pick_display <- function(x) {
@@ -1671,144 +2978,419 @@ server <- function(input, output, session){
     if (length(ux) == 1) ux else paste(ux, collapse = " | ")
   }
 
-  # rows matching current Location + ProtocolID
-  selected_protocol_rows <- reactive({
-    req(input$req_location, input$req_protocol)
+  selected_detections <- reactive({
+    yr <- sel_year_chr()
 
-    meta_all() %>%
-      dplyr::filter(
-        Location   == input$req_location,
-        ProtocolID == input$req_protocol
-      )
+  pts <- species_sf_all
+  if (yr != "All") {
+  pts <- pts %>% dplyr::filter(as.character(year) == yr)
+  }
+
+    g <- selection_geom()
+    if (is.null(g) || nrow(pts) == 0) {
+      return(NULL)
+    }
+
+    keep <- tryCatch(
+      within_any(pts, g),
+      error = function(e) {
+        showNotification(
+          paste("Polygon selection failed:", e$message),
+          type = "error"
+        )
+        return(rep(FALSE, nrow(pts)))
+      }
+    )
+
+    pts[keep, , drop = FALSE]
   })
 
-  # --- base protocol per Location (the "starting choice") ---
-  base_protocol <- reactiveVal(NULL)
+  selected_detections_min <- reactive({
+    yr <- sel_year_chr()
 
-  # whenever Location changes, set base protocol to the first available protocol for that location
-  observeEvent(list(meta_all(), input$req_location), {
-    df <- meta_all()
-    req(input$req_location)
+    pts <- species_sf_by_year[[yr]]
+    if (is.null(pts)) pts <- species_sf_min[0, ]
 
-    prots <- df %>%
-      dplyr::filter(Location == input$req_location) %>%
-      dplyr::filter(!is.na(ProtocolID), ProtocolID != "") %>%
-      dplyr::distinct(ProtocolID) %>%
-      dplyr::arrange(ProtocolID) %>%
-      dplyr::pull(ProtocolID)
+    g <- selection_geom()
+    if (is.null(g) || nrow(pts) == 0) {
+      return(NULL)
+    }
 
-    base_protocol(if (length(prots)) as.character(prots[[1]]) else NULL)
+    keep <- tryCatch(
+      within_any(pts, g),
+      error = function(e) {
+        showNotification(
+          paste("Polygon selection failed:", e$message),
+          type = "error"
+        )
+        return(rep(FALSE, nrow(pts)))
+      }
+    )
+
+    pts[keep, , drop = FALSE]
+  })
+
+  # ---- group filter helper (multi-select; union across selected groups) ----
+  apply_group_filter <- function(occ_all, groups) {
+
+    group_map <- list(
+      "Fishes"        = list(col = "class",   vals = c("Teleostei")),
+      "Sharks & Rays" = list(col = "class",   vals = c("Elasmobranchii")),
+      "Mammals"       = list(col = "class",   vals = c("Mammalia")),
+      "Turtles"      = list(col = "order",   vals = c("Testudines")),
+      "Birds"         = list(col = "class",   vals = c("Aves")),
+      "Molluscs"      = list(col = "phylum",  vals = c("Mollusca")),
+      "Arthropods"    = list(col = "phylum",  vals = c("Arthropoda")),
+      "Plants"        = list(col = "kingdom", vals = c("Plantae"))
+    )
+
+    groups <- as.character(groups %||% character(0))
+    groups <- intersect(groups, names(group_map))
+    if (length(groups) == 0) return(occ_all)
+
+    cols_needed <- unique(vapply(group_map[groups], `[[`, character(1), "col"))
+    missing_cols <- setdiff(cols_needed, names(occ_all))
+
+    if (length(missing_cols) > 0) {
+      # choose ONE behavior:
+      # return(occ_all[0, , drop = FALSE])  # loud fail
+      return(occ_all)                       # silent safe
+    }
+
+    keep <- rep(FALSE, nrow(occ_all))
+    for (g in groups) {
+      spec <- group_map[[g]]
+      xcol <- tolower(as.character(occ_all[[spec$col]]))
+      keep <- keep | (!is.na(xcol) & xcol %in% tolower(spec$vals))
+    }
+
+    occ_all[keep, , drop = FALSE]
+  }
+
+  # ---- active groups (multi-select) ----
+  active_groups <- reactiveVal(character(0))
+
+  toggle_group <- function(g) {
+    cur <- active_groups()
+    if (g %in% cur) active_groups(setdiff(cur, g)) else active_groups(c(cur, g))
+  }
+
+  observeEvent(input$total_fish,       { toggle_group("Fishes") }, ignoreInit = TRUE)
+  observeEvent(input$total_sharks,     { toggle_group("Sharks & Rays") }, ignoreInit = TRUE)
+  observeEvent(input$total_mammals,    { toggle_group("Mammals") }, ignoreInit = TRUE)
+  observeEvent(input$total_reptiles,   { toggle_group("Turtles") }, ignoreInit = TRUE)
+  observeEvent(input$total_birds,      { toggle_group("Birds") }, ignoreInit = TRUE)
+  observeEvent(input$total_molluscs,   { toggle_group("Molluscs") }, ignoreInit = TRUE)
+  observeEvent(input$total_arthropods, { toggle_group("Arthropods") }, ignoreInit = TRUE)
+  observeEvent(input$total_plants,     { toggle_group("Plants") }, ignoreInit = TRUE)
+
+  sync_group_button_classes <- function() {
+    cur <- active_groups()
+
+    btn_map <- c(
+      total_fish       = "Fishes",
+      total_sharks       = "Sharks & Rays",
+      total_mammals    = "Mammals",
+      total_reptiles   = "Turtles",
+      total_birds      = "Birds",
+      total_molluscs   = "Molluscs",
+      total_arthropods = "Arthropods",
+      total_plants     = "Plants"
+    )
+
+    for (btn_id in names(btn_map)) {
+      g <- btn_map[[btn_id]]
+      if (g %in% cur) shinyjs::addClass(btn_id, "btn-group-on") else shinyjs::removeClass(btn_id, "btn-group-on")
+    }
+  }
+
+  # IMPORTANT: keep button visuals synced with state
+  observeEvent(active_groups(), {
+    sync_group_button_classes()
   }, ignoreInit = FALSE)
 
-  # live details card
-  output$protocol_details <- renderUI({
-    df <- selected_protocol_rows()
 
-    if (nrow(df) == 0) {
-      return(tags$div(style="margin-top:10px;", em("No rows found for this Location + ProtocolID.")))
+  # helper: current group label for display/debug if needed
+  active_groups_label <- reactive({
+    cur <- active_groups()
+    if (length(cur) == 0) "All" else paste(cur, collapse = " + ")
+  })
+
+  # ---- SARA/AIS sets + toggles (assumes SARA & AIS exist globally) ----
+  sara_set <- reactive(unique(na.omit(SARA$Scientific.Name)))
+  ais_set  <- reactive(unique(na.omit(AIS$Scientific.Name)))  # adjust column if needed
+
+  filter_sara_on <- reactiveVal(FALSE)
+  filter_ais_on  <- reactiveVal(FALSE)
+
+  apply_species_filters <- function(occ_all) {
+
+    # 1) group buttons
+    occ_all <- apply_group_filter(occ_all, active_groups())
+
+    # 2) SARA/AIS union logic
+    if ("scientificName" %in% names(occ_all)) {
+      spp_keep <- character(0)
+
+      if (isTRUE(filter_sara_on())) spp_keep <- union(spp_keep, sara_set())
+      if (isTRUE(filter_ais_on()))  spp_keep <- union(spp_keep, ais_set())
+
+      if (length(spp_keep) > 0) {
+        occ_all <- occ_all %>% dplyr::filter(scientificName %in% spp_keep)
+      }
     }
 
-    method_groups <- list(
-      "Field Methods" = c("samp_size","size_frac","filter_material","samp_mat_process",
-                          "minimumDepthInMeters","maximumDepthInMeters"),
-      "Storage Methods" = c("samp_store_temp","samp_store_sol"),
-      "Lab Methods" = c("target_gene","pcr_primer_forward","pcr_primer_reverse","nucl_acid_ext_kit"),
-      "Library Preparation" = c("platform","instrument","seq_kit"),
-      "Bioinformatic Methods" = c("otu_db","tax_assign_cat","otu_seq_comp_appr")
-    )
+    occ_all
+  }
 
-    pick_display <- function(x) {
-      x <- as.character(x)
-      x <- x[!is.na(x) & nzchar(trimws(x))]
-      if (length(x) == 0) return(NA_character_)
-      ux <- unique(x)
-      if (length(ux) == 1) ux else paste(ux, collapse = " | ")
+  diversity_dropdown_data <- reactive({
+    pts <- species_sf_all
+
+    yr <- sel_year_chr()
+    if (yr != "All") {
+      pts <- pts %>% dplyr::filter(as.character(year) == yr)
     }
 
-    # Build base df (for comparison)
-    bp <- base_protocol()
-    df_base <- NULL
-    if (!is.null(bp) && nzchar(bp)) {
-      df_base <- meta_all() %>%
-        dplyr::filter(Location == input$req_location, ProtocolID == bp)
-      if (nrow(df_base) == 0) df_base <- NULL
-    }
+    pts <- apply_species_filters(pts)
 
-    # UI
-
-    tags$div(
-      class = "protocol-details-wrap",
-      tagList(
-        lapply(names(method_groups), function(group_name) {
-          fields <- method_groups[[group_name]]
-
-          # Keep only fields that actually exist in df
-          fields <- fields[fields %in% names(df)]
-          if (length(fields) == 0) return(NULL)  # hide empty groups
-
-          tags$div(
-            tags$h5(class = "protocol-group-title", group_name),
-
-            tags$div(
-              class="protocol-grid",
-
-              lapply(fields, function(f) {
-                cur <- pick_display(df[[f]])
-                bas <- if (!is.null(df_base) && f %in% names(df_base)) pick_display(df_base[[f]]) else NA_character_
-
-                cur2 <- ifelse(is.na(cur), "", trimws(as.character(cur)))
-                bas2 <- ifelse(is.na(bas), "", trimws(as.character(bas)))
-
-                changed <- nzchar(cur2) && nzchar(bas2) && !identical(cur2, bas2)
-                is_na   <- !nzchar(cur2)
-
-                tags$div(
-                  tags$div(class="protocol-field-title", f),
-                  tags$div(
-                    class = paste("protocol-card", if (changed) "changed", if (is_na) "na"),
-                    if (is_na) "—" else cur2
-                  )
-                )
-              })
-            )
-          )
-        })
+    pts %>%
+      sf::st_drop_geometry() %>%
+      add_primer_combo() %>%
+      dplyr::mutate(
+        target_gene  = as.character(target_gene),
+        primer_combo = as.character(primer_combo)
       )
+  })
+
+  # ---- source data for diversity dropdowns ----
+  observeEvent(diversity_dropdown_data(), {
+    dd <- diversity_dropdown_data()
+
+    gene_choices <- dd %>%
+      dplyr::filter(!is.na(target_gene), target_gene != "") %>%
+      dplyr::pull(target_gene) %>%
+      unique() %>%
+      sort()
+
+    cur_gene <- input$div_target_gene %||% character(0)
+    sel_gene <- intersect(cur_gene, gene_choices)
+
+    # first load = select all genes
+    if (!div_gene_initialized()) {
+      sel_gene <- gene_choices
+      div_gene_initialized(TRUE)
+    }
+
+    freezeReactiveValue(input, "div_target_gene")
+    updateSelectizeInput(
+      session  = session,
+      inputId  = "div_target_gene",
+      choices  = gene_choices,
+      selected = sel_gene,
+      server   = TRUE
+    )
+  }, ignoreInit = FALSE)
+
+  primer_choices_reactive <- reactive({
+    dd <- diversity_dropdown_data()
+
+    genes_selected <- input$div_target_gene %||% character(0)
+
+    if (length(genes_selected) > 0) {
+      dd <- dd %>%
+        dplyr::filter(target_gene %in% genes_selected)
+    } else {
+      dd <- dd[0, , drop = FALSE]
+    }
+
+    dd %>%
+      dplyr::filter(!is.na(primer_combo), primer_combo != "") %>%
+      dplyr::pull(primer_combo) %>%
+      unique() %>%
+      sort()
+  })
+
+  # Primer choices
+  observeEvent(
+    list(primer_choices_reactive(), input$div_target_gene),
+    {
+      primer_choices <- primer_choices_reactive()
+
+      cur_primer <- input$div_primer %||% character(0)
+      sel_primer <- intersect(cur_primer, primer_choices)
+
+      # first load = select all available primers
+      if (!div_primer_initialized()) {
+        sel_primer <- primer_choices
+        div_primer_initialized(TRUE)
+      }
+
+      freezeReactiveValue(input, "div_primer")
+      updateSelectizeInput(
+        session  = session,
+        inputId  = "div_primer",
+        choices  = primer_choices,
+        selected = sel_primer,
+        server   = TRUE
+      )
+    },
+    ignoreInit = FALSE
+  )
+
+  observeEvent(input$div_primer_all, {
+    primer_choices <- isolate(primer_choices_reactive())
+
+    updateSelectizeInput(
+      session  = session,
+      inputId  = "div_primer",
+      choices  = primer_choices,
+      selected = primer_choices,
+      server   = TRUE
     )
   })
 
+  observeEvent(input$div_primer_none, {
+    primer_choices <- isolate(primer_choices_reactive())
 
-  # --- SARA species set ---
-  sara_set <- reactive(unique(na.omit(SARA$Scientific.Name)))
+    updateSelectizeInput(
+      session  = session,
+      inputId  = "div_primer",
+      choices  = primer_choices,
+      selected = character(0),
+      server   = TRUE
+    )
+  })
 
-  # --- AIS species set ---
-  ais_set  <- reactive(unique(na.omit(AIS$Scientific.Name)))   # adjust column if needed
+  # ---- confirmed diversity controls ----
+  div_filters <- eventReactive(input$div_apply, {
+    list(
+      tax_rank    = input$tax_rank %||% "scientificName",
+      target_gene = input$div_target_gene %||% character(0),
+      primers     = input$div_primer %||% character(0)
+    )
+  }, ignoreInit = FALSE)
 
-  # --- toggle states ---
-  filter_sara_on <- reactiveVal(FALSE)
-  filter_ais_on  <- reactiveVal(FALSE)
+  add_polygon_selection <- function(pts_sf) {
+    if (is.null(pts_sf) || nrow(pts_sf) == 0) {
+      pts_sf$polygon_selection <- character(0)
+      return(pts_sf)
+    }
+
+    # start with empty labels
+    poly_labels <- rep(NA_character_, nrow(pts_sf))
+
+    # ---- existing MPA/AOI polygons ----
+    if (!is.null(all_polys_click) && nrow(all_polys_click) > 0) {
+      mpa_hits <- sf::st_intersects(pts_sf, all_polys_click)
+
+      mpa_labels <- vapply(seq_along(mpa_hits), function(i) {
+        hit <- mpa_hits[[i]]
+        if (length(hit) == 0) return(NA_character_)
+
+        labs <- paste0(
+          all_polys_click$site_type[hit],
+          ": ",
+          all_polys_click$site_name[hit]
+        )
+
+        paste(unique(labs), collapse = " | ")
+      }, character(1))
+
+      poly_labels <- mpa_labels
+    }
+
+    # ---- user-drawn polygons ----
+    polys_drawn <- drawn_polys()
+    if (!is.null(polys_drawn) && nrow(polys_drawn) > 0) {
+      drawn_hits <- sf::st_intersects(pts_sf, polys_drawn)
+
+      drawn_labels <- vapply(seq_along(drawn_hits), function(i) {
+        hit <- drawn_hits[[i]]
+        if (length(hit) == 0) return(NA_character_)
+
+        labs <- polys_drawn$draw_label[hit]
+        paste(unique(labs), collapse = " | ")
+      }, character(1))
+
+      poly_labels <- ifelse(
+        !is.na(poly_labels) & !is.na(drawn_labels),
+        paste(poly_labels, drawn_labels, sep = " | "),
+        dplyr::coalesce(poly_labels, drawn_labels)
+      )
+    }
+
+    pts_sf$polygon_selection <- poly_labels
+    pts_sf
+  }
+
+
+  download_data_reactive <- reactive({
+    filters <- div_filters()
+    yr <- sel_year_chr()
+
+    dat <- species_sf_all %>%
+      add_polygon_selection() %>%
+      dplyr::mutate(
+        decimalLongitude = sf::st_coordinates(.)[, 1],
+        decimalLatitude  = sf::st_coordinates(.)[, 2]
+      ) %>%
+      sf::st_drop_geometry() %>%
+      add_primer_combo()
+
+    if (yr != "All") {
+      dat <- dat %>%
+        dplyr::filter(as.character(year) == yr)
+    }
+
+    dat <- apply_species_filters(dat)
+    dat <- apply_diversity_dropdown_filters(dat, filters)
+
+    rank_col <- filters$tax_rank %||% "scientificName"
+    if (rank_col %in% names(dat)) {
+      dat <- dat %>%
+        dplyr::mutate(selected_taxonomy = as.character(.data[[rank_col]]))
+    } else {
+      dat <- dat %>%
+        dplyr::mutate(selected_taxonomy = NA_character_)
+    }
+
+    dat
+  })
+
+  species_list_occ_all <- reactive({
+    occ_all <- selected_detections()   # or occ_all_filtered(), etc.
+    req(occ_all)
+
+    occ_all <- apply_species_filters(occ_all)
+
+    occ_all %>% dplyr::distinct(scientificName, .keep_all = TRUE) %>% dplyr::arrange(dplyr::coalesce(worms_valid_name, scientificName))
+  })
 
   observeEvent(input$SARA, {
     new_state <- !isTRUE(filter_sara_on())
     filter_sara_on(new_state)
-
-    if (new_state) shinyjs::addClass("SARA", "btn-sara-on")
-    else           shinyjs::removeClass("SARA", "btn-sara-on")
+    if (new_state) shinyjs::addClass("SARA", "btn-sara-on") else shinyjs::removeClass("SARA", "btn-sara-on")
   })
 
   observeEvent(input$AIS, {
     new_state <- !isTRUE(filter_ais_on())
     filter_ais_on(new_state)
-
-    if (new_state) shinyjs::addClass("AIS", "btn-ais-on")
-    else           shinyjs::removeClass("AIS", "btn-ais-on")
+    if (new_state) shinyjs::addClass("AIS", "btn-ais-on") else shinyjs::removeClass("AIS", "btn-ais-on")
   })
 
+    # UI
+
   apply_interest_filter <- function(spp_vec) {
-    out <- spp_vec
-    if (isTRUE(filter_sara_on())) out <- intersect(out, sara_set())
-    if (isTRUE(filter_ais_on()))  out <- intersect(out, ais_set())
-    out
+    if (!isTRUE(filter_sara_on()) && !isTRUE(filter_ais_on())) {
+      return(spp_vec)
+    }
+
+    keep <- character(0)
+
+    if (isTRUE(filter_sara_on())) keep <- union(keep, sara_set())
+    if (isTRUE(filter_ais_on()))  keep <- union(keep, ais_set())
+
+    intersect(spp_vec, keep)
   }
 
   active_filters_label <- reactive({
@@ -1821,7 +3403,7 @@ server <- function(input, output, session){
   output$sara_details <- DT::renderDT({
     if (!isTRUE(filter_sara_on())) {
       return(DT::datatable(
-        data.frame(Message = "Click “Species at Risk (SARA) Schedule 1” to view SARA details."),
+        data.frame(Message = "Select the “SARA” button to view species at risk details."),
         rownames = FALSE,
         options = list(dom = "t")
       ))
@@ -1836,7 +3418,6 @@ server <- function(input, output, session){
       ))
     }
 
-    # 1) remove geometry + keep only SARA spp
     det <- det %>%
       sf::st_drop_geometry() %>%
       dplyr::mutate(scientificName = as.character(scientificName)) %>%
@@ -1850,7 +3431,6 @@ server <- function(input, output, session){
       ))
     }
 
-    # 2) join Rating + Common name (adjust Common.Name to your real column)
     det2 <- det %>%
       dplyr::left_join(
         SARA %>% dplyr::select(
@@ -1864,29 +3444,67 @@ server <- function(input, output, session){
     out <- det2 %>%
       dplyr::group_by(scientificName, Rating) %>%
       dplyr::summarise(
-        Common.Name = paste(sort(unique(na.omit(Common.Name))), collapse = " |OR| "),
+        Common.Name  = paste(sort(unique(na.omit(Common.Name))), collapse = " |OR| "),
         n_detections = dplyr::n(),
         n_samples    = dplyr::n_distinct(samp_name),
         samples      = paste(sort(unique(samp_name)), collapse = ", "),
-        #files        = paste(sort(unique(na.omit(source_file))), collapse = ", "),
         years        = paste(sort(unique(na.omit(year))), collapse = ", "),
+        months       = paste(sort(unique(na.omit(month))), collapse = ", "),
         markers      = paste(sort(unique(na.omit(target_gene))), collapse = ", "),
+        primers      = paste(
+          sort(unique(na.omit(
+            paste(
+              trimws(pcr_primer_name_forward),
+              trimws(pcr_primer_name_reverse),
+              sep = " | "
+            )
+          ))),
+          collapse = ", "
+        ),
         .groups = "drop"
       ) %>%
-      dplyr::arrange(Rating, scientificName) %>%
-      dplyr::relocate(Common.Name, .after = scientificName)
+      dplyr::select(
+        scientificName,
+        Common.Name,
+        Rating,
+        n_detections,
+        n_samples,
+        samples,
+        years,
+        months,
+        markers,
+        primers
+      ) %>%
+      dplyr::arrange(Rating, scientificName)
 
     DT::datatable(
       out,
       rownames = FALSE,
-      options = list(pageLength = 10, scrollX = TRUE)
+      colnames = c(
+        "Species",
+        "Common Name",
+        "SARA Rating",
+        "Number of Detections",
+        "Number of Samples",
+        "Samples",
+        "Years",
+        "Months",
+        "Target Genes",
+        "Primers"
+      ),
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE,
+        autoWidth = TRUE
+      ),
+      class = "nowrap"
     )
   })
 
   output$ais_details <- DT::renderDT({
     if (!isTRUE(filter_ais_on())) {
       return(DT::datatable(
-        data.frame(Message = "Click “Aquatic Invasive Species (AIS)” to view AIS details."),
+        data.frame(Message = "Select the “AIS” button to view invasive species details."),
         rownames = FALSE,
         options = list(dom = "t")
       ))
@@ -1914,159 +3532,103 @@ server <- function(input, output, session){
       ))
     }
 
-    # If AIS has extra columns you want to display, join them here
-    # (edit these column names to match your AIS sheet)
     det2 <- det %>%
       dplyr::left_join(
-        AIS %>% dplyr::select(Scientific.Name, dplyr::everything()),
+        AIS %>% dplyr::select(Scientific.Name, Common.Name, Type),
         by = c("scientificName" = "Scientific.Name")
       )
 
     out <- det2 %>%
       dplyr::group_by(scientificName) %>%
       dplyr::summarise(
-        n_detections = dplyr::n(),
-        n_samples    = dplyr::n_distinct(samp_name),
-        samples      = paste(sort(unique(samp_name)), collapse = ", "),
-        #files        = paste(sort(unique(na.omit(source_file))), collapse = ", "),
-        years        = paste(sort(unique(na.omit(year))), collapse = ", "),
-        markers      = paste(sort(unique(na.omit(target_gene))), collapse = ", "),
+        Common.Name   = paste(sort(unique(na.omit(Common.Name))), collapse = " |OR| "),
+        Type          = paste(sort(unique(na.omit(Type))), collapse = " |OR| "),
+        n_detections  = dplyr::n(),
+        n_samples     = dplyr::n_distinct(samp_name),
+        samples       = paste(sort(unique(samp_name)), collapse = ", "),
+        years         = paste(sort(unique(na.omit(year))), collapse = ", "),
+        months        = paste(sort(unique(na.omit(month))), collapse = ", "),
+        markers       = paste(sort(unique(na.omit(target_gene))), collapse = ", "),
+        primers       = paste(
+          sort(unique(na.omit(
+            paste(
+              trimws(pcr_primer_name_forward),
+              trimws(pcr_primer_name_reverse),
+              sep = " | "
+            )
+          ))),
+          collapse = ", "
+        ),
         .groups = "drop"
+      ) %>%
+      dplyr::select(
+        scientificName,
+        Common.Name,
+        Type,
+        n_detections,
+        n_samples,
+        samples,
+        years,
+        months,
+        markers,
+        primers
       ) %>%
       dplyr::arrange(scientificName)
 
-    DT::datatable(out, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE))
-  })
-
-
-  # ---- helper: convert leaflet.draw feature -> sf polygon (EPSG:4326) ----
-  feature_to_sf <- function(feature) {
-    req(feature$geometry$type)
-    type <- feature$geometry$type
-    coords <- feature$geometry$coordinates
-
-    if (type == "Polygon") {
-      ring <- coords[[1]]
-      mat  <- do.call(rbind, lapply(ring, function(x) c(x[[1]], x[[2]])))
-      poly <- sf::st_polygon(list(mat))
-      return(sf::st_sfc(poly, crs = 4326) |> sf::st_sf())
-    }
-
-    if (type == "MultiPolygon") {
-      polys <- lapply(coords, function(poly_i) {
-        ring <- poly_i[[1]]
-        mat  <- do.call(rbind, lapply(ring, function(x) c(x[[1]], x[[2]])))
-        sf::st_polygon(list(mat))
-      })
-      return(sf::st_sfc(sf::st_multipolygon(polys), crs = 4326) |> sf::st_sf())
-    }
-
-    stop("Drawn feature type not supported: ", type)
-  }
-
-  # ---- store the most-recent drawn polygon ----
-  drawn_poly <- reactiveVal(NULL)
-
-  # ---- selection geometry (drawn polygon OR clicked polygon OR clicked grid cell) ----
-  selection_geom <- reactive({
-    # A) drawn polygon takes priority
-    poly <- drawn_poly()
-    if (!is.null(poly) && nrow(poly) > 0) {
-      return(sf::st_geometry(poly))
-    }
-
-    # B) click-based selection
-    click <- input$map_shape_click
-    if (is.null(click) || is.null(click$id)) return(NULL)
-
-    # B1) MPA/AOI polygon click (you set layerId = paste(site_type, site_name, sep="||"))
-    if (grepl("\\|\\|", click$id)) {
-      parts <- strsplit(click$id, "\\|\\|")[[1]]
-      p_type <- parts[1]
-      p_name <- parts[2]
-      poly_sel <- all_polys_click %>% dplyr::filter(site_type == p_type, site_name == p_name)
-      if (nrow(poly_sel) == 0) return(NULL)
-      return(sf::st_geometry(poly_sel))
-    }
-
-    # B2) grid cell click
-    cid <- suppressWarnings(as.integer(click$id))
-    if (is.na(cid)) return(NULL)
-    cell_poly <- grid_clip %>% dplyr::filter(cell_id == cid)
-    if (nrow(cell_poly) == 0) return(NULL)
-    sf::st_geometry(cell_poly)
-  })
-
-  observeEvent(input$map_draw_new_feature, {
-    drawn_poly(feature_to_sf(input$map_draw_new_feature))
-  })
-
-  observeEvent(input$map_draw_deleted_features, {
-    drawn_poly(NULL)
-  })
-
-  # Detections that fall inside any MPA/AOI polygon (drops outside points)
-  detections_in_mpa <- reactive({
-    yr <- sel_year_chr()
-
-    pts <- species_sf_all
-    if (yr != "All") pts <- pts %>% dplyr::filter(as.character(year) == yr)
-
-    # spatial join: keep only detections that fall within an MPA/AOI polygon
-    joined <- sf::st_join(
-      pts,
-      all_polys_click %>% dplyr::select(site_name, site_type),
-      join = sf::st_within,
-      left = FALSE
+    DT::datatable(
+      out,
+      rownames = FALSE,
+      colnames = c(
+        "Species",
+        "Common Name",
+        "Type",
+        "Number of Detections",
+        "Number of Samples",
+        "Samples",
+        "Years",
+        "Months",
+        "Target Genes",
+        "Primers"
+      ),
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE,
+        autoWidth = TRUE
+      ),
+      class = "nowrap"
     )
-
-    # If polygons overlap, a detection could match multiple polygons.
-    # Pick the first match per detection row (safest quick fix).
-    joined %>%
-      dplyr::group_by(occurrenceID, samp_name, scientificName, year, target_gene) %>%
-      dplyr::slice(1) %>%
-      dplyr::ungroup()
   })
 
-  # ---- Year selection (as character or "All") ----
-  sel_year_chr <- reactive({
-    yr <- input$sel_year %||% "All"
-    as.character(yr)
-  })
+  output$downloadData <- downloadHandler(
+    filename = function() {
+      paste0("GOTeDNA_filtered_data_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      out <- download_data_reactive()
 
-  # reactive filtered points
-  filtered_sampling_pts <- reactive({
-    yr <- sel_year_chr()  # "All" or "2022"/"2023"/"2024"
-
-    if (yr == "All") return(sampling_pts)
-
-    sampling_pts %>%
-      filter(as.character(year) == yr)
-  })
-
-  # redraw points when year changes
-  observeEvent(sel_year_chr(), {
-    pts <- filtered_sampling_pts()
-
-    leafletProxy("map") %>%
-      clearGroup("Sampling points") %>%
-      addCircleMarkers(
-        data        = pts,
-        group       = "Sampling points",
-        radius      = 2,
-        stroke      = TRUE,
-        weight      = 1,
-        opacity     = 1,
-        fillOpacity = 0.8,
-        options = pathOptions(pane = "pane_points"),
-        label       = ~paste0(
-          "Marker: ", target_gene,
-          ifelse(is.na(year), "", paste0(" | Year: ", year)),
-          #ifelse(is.na(source_file), "", paste0(" | File: ", source_file)),
-          ifelse(is.na(samp_name), "", paste0(" | Sample: ", samp_name))
-        )
+      # optional: put a few important columns first, but keep ALL columns
+      preferred_cols <- c(
+        "occurrenceID", "scientificName", "selected_taxonomy",
+        "kingdom", "phylum", "class", "order", "family", "genus",
+        "samp_name", "year", "month", "eventDate",
+        "target_gene", "primer_combo",
+        "organismQuantity", "organismQuantityType",
+        "decimalLatitude", "decimalLongitude", "polygon_selection",
+        "minimumDepthInMeters", "maximumDepthInMeters",
+        "samp_size", "samp_size_unit"
       )
-  }, ignoreInit = TRUE)
+
+      keep_cols <- c(
+        intersect(preferred_cols, names(out)),
+        setdiff(names(out), preferred_cols)
+      )
+
+      out <- out %>%
+        dplyr::select(dplyr::all_of(keep_cols))
+
+      utils::write.csv(out, file, row.names = FALSE, na = "")
+    }
+  )
 
   # ---- 1) Render the leaflet map ONCE ----
   output$map <- renderLeaflet({
@@ -2074,25 +3636,10 @@ server <- function(input, output, session){
     # ---- choose initial year + initial layers safely ----
     yrs <- sort(unique(na.omit(as.character(KEY_TBL$year))))
 
-    init_12S <- {
-      k <- paste0("12S_", default_year)
-      if (k %in% names(RICHNESS_BY_KEY)) RICHNESS_BY_KEY[[k]] else NULL
-    }
-
-    init_COI <- {
-      k <- paste0("COI_", default_year)
-      if (k %in% names(RICHNESS_BY_KEY)) RICHNESS_BY_KEY[[k]] else NULL
-    }
-
-    init_16S <- {
-      k <- paste0("16S_", default_year)
-      if (k %in% names(RICHNESS_BY_KEY)) RICHNESS_BY_KEY[[k]] else NULL
-    }
-
-    init_18S <- {
-      k <- paste0("18S_", default_year)
-      if (k %in% names(RICHNESS_BY_KEY)) RICHNESS_BY_KEY[[k]] else NULL
-    }
+    init_12S <- if (default_year == "All") RICHNESS_GENE_ALL[["12S"]] else RICHNESS_BY_KEY[[paste0("12S_", default_year)]]
+    init_COI <- if (default_year == "All") RICHNESS_GENE_ALL[["COI"]] else RICHNESS_BY_KEY[[paste0("COI_", default_year)]]
+    init_16S <- if (default_year == "All") RICHNESS_GENE_ALL[["16S"]] else RICHNESS_BY_KEY[[paste0("16S_", default_year)]]
+    init_18S <- if (default_year == "All") RICHNESS_GENE_ALL[["18S"]] else RICHNESS_BY_KEY[[paste0("18S_", default_year)]]
 
     init_ALL <- {
       if (default_year == "All") {
@@ -2116,6 +3663,8 @@ server <- function(input, output, session){
       addMapPane("pane_zones",      zIndex = 410) %>%
       addMapPane("pane_poly_total", zIndex = 420) %>%
       addMapPane("pane_points",     zIndex = 430) %>%
+      addMapPane("pane_drawn_top",    zIndex = 900) %>%   #new code
+      addMapPane("pane_selected_top", zIndex = 950) %>%   #new code
       addProviderTiles(providers$CartoDB.Positron, group = "CartoDB Positron") %>%
       addProviderTiles(providers$Esri.OceanBasemap, group = "Esri Ocean Basemap") %>%
       addProviderTiles(providers$Esri.WorldImagery, group = "Esri World Imagery")
@@ -2181,7 +3730,8 @@ server <- function(input, output, session){
       fillOpacity = ~ifelse(has_sampling, 0.8, 0.04),
       color       = NA,
       label       = ~ifelse(has_sampling, paste("Total richness:", n_species_total), "No sampling in this cell"),
-      options     = pathOptions(pane = "pane_polys")
+      options     = pathOptions(pane = "pane_polys"),
+      highlightOptions = highlightOptions(weight = 2, bringToFront = TRUE)
     )
 
     # ---- rest of your map layers ----
@@ -2231,12 +3781,13 @@ server <- function(input, output, session){
         data        = all_polys_click,
         group       = "Total species detected per MPA/AOI",
         layerId     = ~paste(site_type, site_name, sep="||"),
-        fillOpacity = 0,
+        fillOpacity = 0.05,
         color       = "black",
         weight      = 2,
         opacity     = 1,
         popup       = ~site_name,
-        options     = pathOptions(pane = "pane_poly_total")
+        options     = pathOptions(pane = "pane_poly_total"),
+        highlightOptions = highlightOptions(weight = 3, bringToFront = TRUE)
       )
 
     # ---- legends + controls ----
@@ -2257,6 +3808,14 @@ server <- function(input, output, session){
         opacity   = 1,
         className = "legend-base legend-depth-box"
       ) %>%
+      addCircleMarkers(
+        lng = 0, lat = 0,
+        radius = 1,
+        opacity = 0,
+        fillOpacity = 0,
+        stroke = FALSE,
+        group = "Monthly Sampling Plot"
+      ) %>%
       addDrawToolbar(
         targetGroup = "drawn",
         polygonOptions = drawPolygonOptions(showArea = TRUE),
@@ -2274,9 +3833,21 @@ server <- function(input, output, session){
           "All", "12S", "COI", "16S", "18S",
           "MPA/AOI zone boundaries",
           "Sampling points",
-          "Sampling Depth"
+          "Sampling Depth",
+          "Monthly Sampling Plot"
         ),
         options = layersControlOptions(collapsed = FALSE)
+      # )
+      # addLayersControl(
+      #   baseGroups = c("CartoDB Positron", "Esri Ocean Basemap", "Esri World Imagery"),
+      #   overlayGroups = c(
+      #     "Total species detected per MPA/AOI",
+      #     "All", "12S", "COI", "16S", "18S",
+      #     "MPA/AOI zone boundaries",
+      #     "Sampling points",
+      #     "Sampling Depth"
+      #   ),
+      #   options = layersControlOptions(collapsed = FALSE)
       ) %>%
       htmlwidgets::onRender("
                       function(el, x){
@@ -2292,10 +3863,13 @@ server <- function(input, output, session){
                         const context = new Set([
                           'MPA/AOI zone boundaries',
                           'Sampling points',
-                          'Sampling Depth'
+                          'Sampling Depth',
+                          'Monthly Sampling Plot'
                         ]);
 
                         const depthName = 'Sampling Depth';
+
+                        const monthlyPlotName = 'Monthly Sampling Plot';
 
                         function getOverlayRows(){
                           const ctrl = el.querySelector('.leaflet-control-layers');
@@ -2354,6 +3928,73 @@ server <- function(input, output, session){
                           return false;
                         }
 
+                       function updateMonthlyPlotVisibility(){
+  const plotBox = document.getElementById('monthly_plot_control');
+  if(!plotBox) return;
+
+  const monthlyOn = isChecked(monthlyPlotName);
+
+  const richLegend  = el.querySelector('.legend-richness-box');
+  const depthLegend = el.querySelector('.legend-depth-box');
+
+  let activeLegend = null;
+  if(richLegend && !richLegend.classList.contains('legend-hidden')){
+    activeLegend = richLegend;
+  } else if(depthLegend && !depthLegend.classList.contains('legend-hidden')){
+    activeLegend = depthLegend;
+  }
+
+  const pad = 14;
+  const gap = 14;
+  const defaultLegendRight = 10;
+  const defaultLegendBottom = 10;
+
+  // Monthly plot OFF
+  if(!monthlyOn){
+    plotBox.style.display = 'none';
+    plotBox.style.left = 'auto';
+    plotBox.style.right = 'auto';
+    plotBox.style.top = 'auto';
+    plotBox.style.bottom = 'auto';
+
+    if(richLegend){
+      richLegend.style.left = 'auto';
+      richLegend.style.right = defaultLegendRight + 'px';
+      richLegend.style.top = 'auto';
+      richLegend.style.bottom = defaultLegendBottom + 'px';
+      richLegend.style.margin = '0px';
+    }
+
+    if(depthLegend){
+      depthLegend.style.left = 'auto';
+      depthLegend.style.right = defaultLegendRight + 'px';
+      depthLegend.style.top = 'auto';
+      depthLegend.style.bottom = defaultLegendBottom + 'px';
+      depthLegend.style.margin = '0px';
+    }
+
+    return;
+  }
+
+  // Monthly plot ON
+  plotBox.style.display = 'block';
+  plotBox.style.left = 'auto';
+  plotBox.style.right = pad + 'px';
+  plotBox.style.top = 'auto';
+  plotBox.style.bottom = pad + 'px';
+  plotBox.style.margin = '0px';
+
+  if(activeLegend){
+    const plotW = plotBox.offsetWidth || 320;
+
+    activeLegend.style.left = 'auto';
+    activeLegend.style.right = (plotW + gap + pad) + 'px';
+    activeLegend.style.top = 'auto';
+    activeLegend.style.bottom = pad + 'px';
+    activeLegend.style.margin = '0px';
+  }
+}
+
                         function insertHeadings(){
                           const ctrl = el.querySelector('.leaflet-control-layers');
                           if(!ctrl) return;
@@ -2375,7 +4016,7 @@ server <- function(input, output, session){
                           if(firstRich){
                             const h1 = document.createElement('div');
                             h1.className = 'layers-heading';
-                            h1.textContent = 'Species richness by gene region';
+                            h1.textContent = 'Species richness by gene region (grid cells)';
                             overlayBox.insertBefore(h1, firstRich);
                           }
 
@@ -2391,24 +4032,25 @@ server <- function(input, output, session){
                           }
                         }
 
-                        // ---- LEGEND SWAP ----
-                          function updateLegends(){
-                            const richLegend  = el.querySelector('.legend-richness-box');
-                            const depthLegend = el.querySelector('.legend-depth-box');
+                        // ---- LEGEND SWAP ---- //
 
-                            const depthOn = isChecked(depthName);
-                            const anyRichOn = anyChecked(richness);
+                        function updateLegends(){
+                        const richLegend  = el.querySelector('.legend-richness-box');
+                        const depthLegend = el.querySelector('.legend-depth-box');
 
-                            // show depth legend only when depth is on
-                            if(depthLegend){
-                              depthLegend.classList.toggle('legend-hidden', !depthOn);
-                            }
+                        const depthOn = isChecked(depthName);
+                        const anyRichOn = anyChecked(richness);
 
-                            // show richness legend when any richness layer is on (and depth is off)
-                            if(richLegend){
-                              richLegend.classList.toggle('legend-hidden', depthOn || !anyRichOn);
-                            }
-                          }
+                        if(depthLegend){
+                        depthLegend.classList.toggle('legend-hidden', !depthOn);
+                        }
+
+                        if(richLegend){
+                        richLegend.classList.toggle('legend-hidden', depthOn || !anyRichOn);
+                        }
+
+                        updateMonthlyPlotVisibility();
+                        }
 
                         function wireExclusivity(){
                           const rows = getOverlayRows();
@@ -2462,10 +4104,54 @@ server <- function(input, output, session){
     m
   })
 
+  observe({
+    polys <- drawn_polys()
+    proxy <- leafletProxy("map")
+
+    proxy %>% clearGroup("Drawn polygons")
+    proxy %>% clearGroup("Selected drawn polygon")
+
+    if (nrow(polys) == 0) return()
+
+    # all drawn polygons
+    proxy %>%
+      addPolygons(
+        data        = polys,
+        group       = "Drawn polygons",
+        layerId     = ~draw_id,
+        fillColor   = "#2241a7",
+        fillOpacity = 0.10,
+        color       = "#2241a7",
+        weight      = 2,
+        opacity     = 1,
+        label       = ~draw_label,
+        options     = pathOptions(pane = "pane_drawn_top")
+      )
+
+    # selected polygon highlighted separately
+    sid <- selected_draw_id()
+    if (!is.null(sid) && sid %in% polys$draw_id) {
+      sel <- polys %>% dplyr::filter(draw_id == sid)
+
+      proxy %>%
+        addPolygons(
+          data        = sel,
+          group       = "Selected drawn polygon",
+          layerId     = ~draw_id,
+          fillColor   = "#Fdd262",
+          fillOpacity = 0.18,
+          color       = "#Fdd262",
+          weight      = 4,
+          opacity     = 1,
+          label       = ~draw_label,
+          options     = pathOptions(pane = "pane_selected_top")
+        )
+    }
+  })
+
   # ---- 2) When the year changes, swap the richness layers ----
   observeEvent(sel_year_chr(), {
-    yr <- sel_year_chr()  # "All" or "2023" etc
-
+    yr <- sel_year_chr()
     proxy <- leafletProxy("map")
 
     add_grid_layer <- function(data_sf, group_name, value_col, label_prefix) {
@@ -2473,10 +4159,8 @@ server <- function(input, output, session){
         proxy %>% clearGroup(group_name)
         return(invisible(NULL))
       }
-
       if (!"has_sampling" %in% names(data_sf)) data_sf$has_sampling <- FALSE
       data_sf$has_sampling <- as.logical(data_sf$has_sampling)
-
       if (!value_col %in% names(data_sf)) data_sf[[value_col]] <- NA_real_
 
       data_sf$.val   <- data_sf[[value_col]]
@@ -2501,51 +4185,19 @@ server <- function(input, output, session){
         )
     }
 
-    # --- 12S (only if that key exists) ---
-    grid12 <- NULL
-    if (yr != "All") {
-      k <- paste0("12S_", yr)
-      if (k %in% names(RICHNESS_BY_KEY)) grid12 <- RICHNESS_BY_KEY[[k]]
-    }
-    add_grid_layer(grid12, "12S", "n_species", "12S richness")
+    grid12  <- if (yr == "All") RICHNESS_GENE_ALL[["12S"]] else RICHNESS_BY_KEY[[paste0("12S_", yr)]]
+    gridCOI <- if (yr == "All") RICHNESS_GENE_ALL[["COI"]] else RICHNESS_BY_KEY[[paste0("COI_", yr)]]
+    grid16  <- if (yr == "All") RICHNESS_GENE_ALL[["16S"]] else RICHNESS_BY_KEY[[paste0("16S_", yr)]]
+    grid18  <- if (yr == "All") RICHNESS_GENE_ALL[["18S"]] else RICHNESS_BY_KEY[[paste0("18S_", yr)]]
 
-    # --- COI ---
-    gridCOI <- NULL
-    if (yr != "All") {
-      k <- paste0("COI_", yr)
-      if (k %in% names(RICHNESS_BY_KEY)) gridCOI <- RICHNESS_BY_KEY[[k]]
-    }
+    add_grid_layer(grid12,  "12S", "n_species", "12S richness")
     add_grid_layer(gridCOI, "COI", "n_species", "COI richness")
+    add_grid_layer(grid16,  "16S", "n_species", "16S richness")
+    add_grid_layer(grid18,  "18S", "n_species", "18S richness")
 
-
-    # --- 16S ---
-    grid16 <- NULL
-    if (yr != "All") {
-      k <- paste0("16S_", yr)
-      if (k %in% names(RICHNESS_BY_KEY)) grid16 <- RICHNESS_BY_KEY[[k]]
-    }
-    add_grid_layer(grid16, "16S", "n_species", "16S richness")
-
-    # --- 18S ---
-    grid18 <- NULL
-    if (yr != "All") {
-      k <- paste0("18S_", yr)
-      if (k %in% names(RICHNESS_BY_KEY)) grid18 <- RICHNESS_BY_KEY[[k]]
-    }
-    add_grid_layer(grid18, "18S", "n_species", "18S richness")
-
-    # --- ALL markers ---
-    gridALL <- if (yr == "All") {
-      RICHNESS_ALL
-    } else if (yr %in% names(RICHNESS_ALL_BY_YEAR)) {
-      RICHNESS_ALL_BY_YEAR[[yr]]
-    } else {
-      RICHNESS_ALL
-    }
+    gridALL <- if (yr == "All") RICHNESS_ALL else RICHNESS_ALL_BY_YEAR[[yr]] %||% RICHNESS_ALL
     add_grid_layer(gridALL, "All", "n_species_total", "Total richness")
-
   }, ignoreInit = TRUE)
-
 
   #Depth toggle
   selected_depth_layer <- function(year) {
@@ -2559,12 +4211,12 @@ server <- function(input, output, session){
     yr_key <- selected_depth_layer(input$sel_year)
     if (!yr_key %in% names(depth_layers)) return()
 
-    df <- depth_layers[[yr_key]]
+    occ_all <- depth_layers[[yr_key]]
 
     leafletProxy("map") %>%
       clearGroup("Sampling Depth") %>%
       addPolygons(
-        data        = df,
+        data        = occ_all,
         group       = "Sampling Depth",
         layerId     = ~cell_id,
         fill        = TRUE,
@@ -2587,107 +4239,258 @@ server <- function(input, output, session){
     suppressWarnings(as.integer(click$id))
   })
 
-  selected_detections <- reactive({
+  # ---- detections used by Diversity section only ----
+  # Floating panel filters still apply first.
+  # tax_rank and div_target_gene only affect diversity calculations.
+  # diversity_detections <- reactive({
+  #   det <- selected_detections()
+  #   req(det)
+  #
+  #   det <- apply_species_filters(det)
+  #
+  #   gene_sel <- input$div_target_gene %||% character(0)
+  #
+  #   # If user deselects everything, keep all genes
+  #   if (length(gene_sel) > 0) {
+  #     det <- det %>%
+  #       dplyr::filter(as.character(target_gene) %in% gene_sel)
+  #   }
+  #
+  #   det
+  # })
+
+  # ---- diversity detections for all MPA/AOI polygons ----
+  diversity_detections_mpa <- reactive({
     yr <- sel_year_chr()
+    filters <- div_filters()
 
-    # start with the full detection points table
     pts <- species_sf_all
-    if (yr != "All") pts <- pts %>% dplyr::filter(as.character(year) == yr)
+     if (yr != "All") {
+       pts <- pts %>% dplyr::filter(as.character(year) == yr)
+     }
 
-    # A) drawn polygon selection takes priority
-    poly <- drawn_poly()
-    if (!is.null(poly)) {
-      inside <- pts[sf::st_within(pts, poly, sparse = FALSE), , drop = FALSE]
-      return(inside)
-    }
+    joined <- sf::st_join(
+      pts,
+      all_polys_click %>% dplyr::select(site_name, site_type),
+      join = sf::st_within,
+      left = FALSE
+    )
 
-    # B) click selection (grid or polygon)
-    click <- input$map_shape_click
-    if (is.null(click) || is.null(click$id)) return(NULL)
+    joined <- apply_species_filters(joined)
+    joined <- apply_diversity_dropdown_filters(joined, filters)
 
-    # polygon click case: use your polygon->species list table if you have detection rows by polygon;
-    # otherwise fallback to spatial within polygon geometry (recommended)
-    if (grepl("\\|\\|", click$id)) {
-      parts <- strsplit(click$id, "\\|\\|")[[1]]
-      p_type <- parts[1]; p_name <- parts[2]
-
-      poly_sel <- all_polys_click %>%
-        dplyr::filter(site_type == p_type, site_name == p_name)
-
-      if (nrow(poly_sel) == 0) return(NULL)
-
-      inside <- pts[sf::st_within(pts, sf::st_geometry(poly_sel), sparse = FALSE), , drop = FALSE]
-      return(inside)
-    }
-
-    # grid cell click: if you have a grid sf with cell_id polygons for the year, use it
-    cid <- suppressWarnings(as.integer(click$id))
-    if (is.na(cid)) return(NULL)
-
-    # pick which grid geometry to use
-    grid_all_year <- grid_clip  # use the clipped grid you built once
-
-    cell_poly <- grid_all_year %>% dplyr::filter(cell_id == cid)
-    if (nrow(cell_poly) == 0) return(NULL)
-
-    inside <- pts[sf::st_within(pts, sf::st_geometry(cell_poly), sparse = FALSE), , drop = FALSE]
-    inside
+    joined %>%
+      dplyr::arrange(occurrenceID) %>%
+      dplyr::group_by(
+        occurrenceID, samp_name, scientificName, year, target_gene,
+        site_name, site_type
+      ) %>%
+      dplyr::slice(1) %>%
+      dplyr::ungroup()
   })
 
   #Diversity plots
   # --- build sample x taxon matrix from current selection ---
   comm_mat_mpa <- reactive({
-    det <- detections_in_mpa()
+    det <- diversity_detections_mpa()
     req(det)
 
-    df <- det %>% sf::st_drop_geometry()
+    occ_all <- det %>% sf::st_drop_geometry()
 
     shiny::validate(
-      shiny::need(nrow(df) > 0, "No samples fall inside MPA/AOI boundaries for the current Year filter.")
+      shiny::need(nrow(occ_all) > 0, "No detections available for the current filters.")
     )
 
-    val_col <- if ("organismQuantity" %in% names(df)) "organismQuantity" else NULL
-
-    rank_col <- input$tax_rank %||% "scientificName"
+    rank_col <- div_filters()$tax_rank
 
     shiny::validate(
-      shiny::need("organismQuantity" %in% names(df),
+      shiny::need("organismQuantity" %in% names(occ_all),
                   "organismQuantity column is missing.")
     )
 
-    df2 <- df %>%
+    occ_all2 <- occ_all %>%
       dplyr::mutate(
         samp_name = as.character(samp_name),
         taxon     = as.character(.data[[rank_col]]),
         value     = as.numeric(organismQuantity)
       ) %>%
       dplyr::filter(
+        !is.na(samp_name), samp_name != "",
+        !is.na(site_name), site_name != "",
         !is.na(taxon), taxon != "",
         !is.na(value)
       ) %>%
-      dplyr::group_by(samp_name, taxon) %>%
-      dplyr::summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
+      dplyr::group_by(site_name, samp_name, taxon) %>%
+      dplyr::summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
+      dplyr::mutate(sample_group = paste(site_name, samp_name, sep = " || "))
 
-    mat_wide <- df2 %>%
+    shiny::validate(
+      shiny::need(nrow(occ_all2) > 0, "No abundance data available after filtering.")
+    )
+
+    mat_wide <- occ_all2 %>%
+      dplyr::select(sample_group, taxon, value) %>%
       tidyr::pivot_wider(
         names_from  = taxon,
         values_from = value,
         values_fill = 0
       )
 
-    mat <- mat_wide %>% dplyr::select(-samp_name) %>% as.data.frame()
-    rownames(mat) <- mat_wide$samp_name
+    mat <- mat_wide %>%
+      dplyr::select(-sample_group) %>%
+      as.data.frame()
+
+    rownames(mat) <- mat_wide$sample_group
     mat
   })
 
+
   sample_meta_mpa <- reactive({
-    det <- detections_in_mpa()
+    det <- diversity_detections_mpa()
     req(det)
 
     det %>%
       sf::st_drop_geometry() %>%
-      dplyr::mutate(samp_name = as.character(samp_name)) %>%
-      dplyr::distinct(samp_name, site_name, site_type, year)
+      dplyr::mutate(
+        samp_name = as.character(samp_name),
+        site_name = as.character(site_name),
+        site_type = as.character(site_type),
+        year      = if ("year" %in% names(.)) as.character(year) else NA_character_,
+        sample_group = paste(site_name, samp_name, sep = " || ")
+      ) %>%
+      dplyr::distinct(sample_group, samp_name, site_name, site_type, year)
+  })
+
+  # ---- base detections used for beta ordination ----
+  # Includes:
+  #   - all detections inside MPA/AOI polygons
+  #   - plus detections inside any drawn polygons
+  # Floating-panel filters and diversity target_gene filter still apply.
+  diversity_detections_beta <- reactive({
+    yr <- sel_year_chr()
+    filters <- div_filters()
+
+    pts <- species_sf_all
+    if (yr != "All") {
+       pts <- pts %>% dplyr::filter(as.character(year) == yr)
+     }
+
+    pts <- apply_species_filters(pts)
+    pts <- apply_diversity_dropdown_filters(pts, filters)
+
+    in_mpa <- sf::st_join(
+      pts,
+      all_polys_click %>% dplyr::select(site_name, site_type),
+      join = sf::st_within,
+      left = FALSE
+    ) %>%
+      dplyr::arrange(occurrenceID) %>%
+      dplyr::group_by(
+        occurrenceID, samp_name, scientificName, year, target_gene,
+        site_name, site_type
+      ) %>%
+      dplyr::slice(1) %>%
+      dplyr::ungroup()
+
+    polys <- drawn_polys()
+
+    if (is.null(polys) || nrow(polys) == 0) {
+      return(in_mpa)
+    }
+
+    drawn_list <- lapply(seq_len(nrow(polys)), function(i) {
+      g_i <- sf::st_geometry(polys[i, , drop = FALSE])
+      lab <- polys$draw_label[i]
+
+      inside_i <- pts[within_any(pts, g_i), , drop = FALSE]
+      if (nrow(inside_i) == 0) return(NULL)
+
+      inside_i %>%
+        dplyr::mutate(
+          site_name = lab,
+          site_type = "User"
+        )
+    })
+
+    in_drawn <- dplyr::bind_rows(drawn_list)
+
+    dplyr::bind_rows(in_mpa, in_drawn)
+  })
+
+  # ---- unique sample x taxon matrix for ONE shared ordination ----
+  beta_comm_mat <- reactive({
+    det <- diversity_detections_beta()
+    req(det)
+
+    occ_all <- det %>%
+      sf::st_drop_geometry()
+
+    shiny::validate(
+      shiny::need(nrow(occ_all) > 0, "No detections available for the current filters.")
+    )
+
+    rank_col <- div_filters()$tax_rank
+
+    shiny::validate(
+      shiny::need("organismQuantity" %in% names(occ_all),
+                  "organismQuantity column is missing.")
+    )
+
+    # IMPORTANT:
+    # Build matrix by UNIQUE sample only, not by group.
+    # If a sample is in both an MPA and a drawn polygon,
+    # it still gets one row in the ordination matrix.
+    occ_all2 <- occ_all %>%
+      dplyr::mutate(
+        samp_name = as.character(samp_name),
+        taxon     = as.character(.data[[rank_col]]),
+        value     = as.numeric(organismQuantity)
+      ) %>%
+      dplyr::filter(
+        !is.na(samp_name), samp_name != "",
+        !is.na(taxon), taxon != "",
+        !is.na(value)
+      ) %>%
+      dplyr::group_by(samp_name, taxon) %>%
+      dplyr::summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
+
+    shiny::validate(
+      shiny::need(nrow(occ_all2) > 0, "No abundance data available after filtering.")
+    )
+
+    mat_wide <- occ_all2 %>%
+      tidyr::pivot_wider(
+        names_from  = taxon,
+        values_from = value,
+        values_fill = 0
+      )
+
+    mat <- mat_wide %>%
+      dplyr::select(-samp_name) %>%
+      as.data.frame()
+
+    rownames(mat) <- mat_wide$samp_name
+    mat
+  })
+
+
+  # ---- metadata for plotting: samples can belong to multiple groups ----
+  beta_plot_meta <- reactive({
+    det <- diversity_detections_beta()
+    req(det)
+
+    det %>%
+      sf::st_drop_geometry() %>%
+      dplyr::mutate(
+        samp_name  = as.character(samp_name),
+        site_name  = as.character(site_name),
+        site_type  = as.character(site_type),
+        year       = if ("year" %in% names(.)) as.character(year) else NA_character_,
+        group_label = as.character(site_name)
+      ) %>%
+      dplyr::filter(!is.na(samp_name), samp_name != "",
+                    !is.na(group_label), group_label != "") %>%
+      dplyr::distinct(samp_name, group_label, site_type, year)
   })
 
   # --- sample metadata for grouping/hover (Location etc.) ---
@@ -2695,15 +4498,15 @@ server <- function(input, output, session){
     det <- selected_detections()
     req(det)
 
-    df <- det %>% sf::st_drop_geometry()
+    occ_all <- det %>% sf::st_drop_geometry()
 
-    out <- df %>%
+    out <- occ_all %>%
       dplyr::mutate(
         samp_name = as.character(samp_name),
-        Location  = if ("Location" %in% names(.)) as.character(Location) else NA_character_,
+        site_name  = if ("site_name" %in% names(.)) as.character(site_name) else NA_character_,
         year      = if ("year" %in% names(.)) as.character(year) else NA_character_
       ) %>%
-      dplyr::distinct(samp_name, Location, year)
+      dplyr::distinct(samp_name, site_name, year)
 
     out
   })
@@ -2726,103 +4529,114 @@ server <- function(input, output, session){
     )
 
     data.frame(
-      samp_name = names(vals),
-      alpha_val = as.numeric(vals),
+      sample_group = names(vals),
+      alpha_val    = as.numeric(vals),
       stringsAsFactors = FALSE
     )
   })
 
-  # --- Alpha boxplot data: MPA/AOI boxes + (optional) drawn polygon box ---
+  # --- Alpha boxplot data: selected area + optional drawn polygons ---
+  alpha_boxplot_occ_all <- reactive({
+    yr <- sel_year_chr()
 
-    # 1) Base: richness per sample by MPA/AOI (what you already do)
-    alpha_boxplot_df <- reactive({
-      yr <- sel_year_chr()
+    alpha <- alpha_metric_vec()
+    meta  <- sample_meta_mpa()
 
-      mat   <- comm_mat_mpa()
-      meta  <- sample_meta_mpa()
-      alpha <- alpha_metric_vec()
+    alpha_mpa <- alpha %>%
+      dplyr::left_join(meta, by = "sample_group") %>%
+      dplyr::filter(!is.na(site_name), site_name != "") %>%
+      dplyr::mutate(group_label = as.character(site_name))
 
-      alpha_mpa <- alpha %>%
-        dplyr::left_join(meta, by = "samp_name") %>%
-        dplyr::filter(!is.na(site_name), site_name != "") %>%
-        dplyr::mutate(group_label = as.character(site_name))
+    # ---- add drawn polygons as extra groups ----
+    polys <- drawn_polys()
 
+    if (!is.null(polys) && nrow(polys) > 0) {
 
-    # 2) add a "Drawn polygon" group (only if a polygon exists)
-      poly <- drawn_poly()
-      if (!is.null(poly)) {
+      pts <- species_sf_all
+      if (yr != "All") {
+      pts <- pts %>% dplyr::filter(as.character(year) == yr)
+      }
 
-        pts <- species_sf_all
-        if (yr != "All") pts <- pts %>% dplyr::filter(as.character(year) == yr)
+      pts <- apply_species_filters(pts)
+      pts <- apply_diversity_dropdown_filters(pts, div_filters())
 
-        rank_col <- input$tax_rank %||% "scientificName"
+      rank_col <- div_filters()$tax_rank
+      metric   <- input$alpha_metric %||% "observed"
 
-        # match comm_mat_mpa(): use organismQuantity if present
-        val_col <- if ("organismQuantity" %in% names(pts)) "organismQuantity" else NULL
+      alpha_poly_list <- lapply(seq_len(nrow(polys)), function(i) {
+        g_i <- sf::st_geometry(polys[i, , drop = FALSE])
 
-        inside <- pts[sf::st_within(pts, poly, sparse = FALSE), , drop = FALSE] %>%
+        inside <- pts[within_any(pts, g_i), , drop = FALSE] %>%
           sf::st_drop_geometry() %>%
           dplyr::mutate(
             samp_name = as.character(samp_name),
             taxon     = as.character(.data[[rank_col]]),
             value     = as.numeric(organismQuantity)
           ) %>%
-          dplyr::filter(!is.na(samp_name), samp_name != "",
-                        !is.na(taxon), taxon != "",
-                        !is.na(value)) %>%                     # keep numeric values only
+          dplyr::filter(
+            !is.na(samp_name), samp_name != "",
+            !is.na(taxon), taxon != "",
+            !is.na(value)
+          ) %>%
           dplyr::group_by(samp_name, taxon) %>%
           dplyr::summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
 
-        if (nrow(inside) > 0) {
+        if (nrow(inside) == 0) return(NULL)
 
-          mat_poly <- inside %>%
-            tidyr::pivot_wider(
-              names_from  = taxon,
-              values_from = value,
-              values_fill = 0
-            ) %>%
-            as.data.frame()
+        mat_poly <- inside %>%
+          tidyr::pivot_wider(
+            names_from  = taxon,
+            values_from = value,
+            values_fill = 0
+          ) %>%
+          as.data.frame()
 
-          rownames(mat_poly) <- mat_poly$samp_name
-          mat_poly$samp_name <- NULL
+        rownames(mat_poly) <- mat_poly$samp_name
+        mat_poly$samp_name <- NULL
 
-          metric <- input$alpha_metric %||% "observed"
-          vals_poly <- switch(
-            metric,
-            observed   = vegan::specnumber(mat_poly),
-            shannon    = vegan::diversity(mat_poly, index = "shannon"),
-            simpson    = vegan::diversity(mat_poly, index = "simpson"),
-            invsimpson = vegan::diversity(mat_poly, index = "invsimpson"),
-            ace        = vegan::estimateR(mat_poly)["S.ACE", ],
-            vegan::specnumber(mat_poly)
-          )
+        vals_poly <- switch(
+          metric,
+          observed   = vegan::specnumber(mat_poly),
+          shannon    = vegan::diversity(mat_poly, index = "shannon"),
+          simpson    = vegan::diversity(mat_poly, index = "simpson"),
+          invsimpson = vegan::diversity(mat_poly, index = "invsimpson"),
+          ace        = vegan::estimateR(mat_poly)["S.ACE", ],
+          vegan::specnumber(mat_poly)
+        )
 
-          alpha_drawn <- data.frame(
-            samp_name   = names(vals_poly),
-            alpha_val   = as.numeric(vals_poly),
-            site_name   = "Drawn polygon",
-            site_type   = "User",
-            group_label = "Drawn polygon",
-            stringsAsFactors = FALSE
-          )
+        poly_label <- polys$draw_label[i]
 
-          alpha_mpa <- dplyr::bind_rows(alpha_mpa, alpha_drawn)
-        }
+        data.frame(
+          sample_group = names(vals_poly),
+          alpha_val    = as.numeric(vals_poly),
+          samp_name    = names(vals_poly),
+          site_name    = poly_label,
+          site_type    = "User",
+          year         = NA_character_,
+          group_label  = poly_label,
+          stringsAsFactors = FALSE
+        )
+      })
+
+      alpha_poly <- dplyr::bind_rows(alpha_poly_list)
+
+      if (nrow(alpha_poly) > 0) {
+        alpha_mpa <- dplyr::bind_rows(alpha_mpa, alpha_poly)
       }
+    }
 
-    # 3) Make sure "Drawn polygon" appears at the end (only if present)
-    lvls <- unique(alpha_mpa$group_label[alpha_mpa$group_label != "Drawn polygon"])
-    if (any(alpha_mpa$group_label == "Drawn polygon")) lvls <- c(lvls, "Drawn polygon")
+    base_lvls <- unique(alpha_mpa$group_label[alpha_mpa$site_type != "User"])
+    draw_lvls <- unique(alpha_mpa$group_label[alpha_mpa$site_type == "User"])
 
     alpha_mpa %>%
-      dplyr::mutate(group_label = factor(group_label, levels = lvls))
+      dplyr::mutate(group_label = factor(group_label, levels = c(base_lvls, draw_lvls)))
   })
 
   # --- Alpha diversity boxplot (Plotly) ---
   color_vec <- c("#046c9a", "#5BBCD6", "#ABDDDE", "#446455", "#00A08A","#Fdd262")
 
   output$alpha_boxplot <- plotly::renderPlotly({
-    alpha <- alpha_boxplot_df()
+    alpha <- alpha_boxplot_occ_all()
 
     shiny::validate(
       shiny::need(nrow(alpha) > 0, "No samples available for the current selection/year.")
@@ -2838,9 +4652,27 @@ server <- function(input, output, session){
       "Alpha diversity"
     )
 
-    rank_label <- tools::toTitleCase(gsub("_", " ", input$tax_rank))
+    rank_label <- tools::toTitleCase(gsub("_", " ", div_filters()$tax_rank))
+    gene_label <- div_filters()$target_gene
+    primer_label <- div_filters()$primers
 
-    metric_label <- paste(metric_label, "at", rank_label, "level")
+    gene_suffix <- if (length(gene_label) > 0) {
+      paste0(" | Genes: ", paste(gene_label, collapse = ", "))
+    } else {
+      ""
+    }
+
+    primer_suffix <- if (length(primer_label) > 0) {
+      paste0(" | Primers: ", paste(primer_label, collapse = "; "))
+    } else {
+      ""
+    }
+
+    metric_label <- paste0(
+      metric_label, " at ", rank_label, " level",
+      gene_suffix, primer_suffix
+    )
+
 
     plotly::plot_ly(
       data = alpha,
@@ -2860,91 +4692,224 @@ server <- function(input, output, session){
       customdata = ~cbind(samp_name)
     ) %>%
       plotly::layout(
-        xaxis = list(title = "Location (Polygon)", showgrid = FALSE, showline = TRUE, linecolor = "black", rangemode = "tozero"),
-        yaxis = list(title = metric_label, showgrid = FALSE, showline = TRUE, linecolor = "black",
-                     range = c(0, max(alpha$alpha_val, na.rm = TRUE) * 1.05), fixedrange = FALSE),
-        margin = list(l = 60, r = 20, t = 50, b = 110),
-        showlegend = FALSE   # remove legend if you don’t want repeated labels
+        font = list(size = 18),
+        xaxis = list(
+          title = list(text = "Location (Polygon)", font = list(size = 20)),
+          tickfont = list(size = 16),
+          showgrid = FALSE,
+          showline = TRUE,
+          linecolor = "black",
+          rangemode = "tozero"
+        ),
+        yaxis = list(
+          title = list(text = metric_label, font = list(size = 20)),
+          tickfont = list(size = 16),
+          showgrid = FALSE,
+          showline = TRUE,
+          linecolor = "black",
+          range = c(0, max(alpha$alpha_val, na.rm = TRUE) * 1.05),
+          fixedrange = FALSE
+        ),
+        margin = list(l = 80, r = 30, t = 40, b = 120),
+        showlegend = FALSE
       )
   })
 
   #Beta diversity
   output$beta_pcoa <- plotly::renderPlotly({
-    mat <- comm_mat_mpa()
-    meta <- sample_meta_mpa()
+    mat  <- beta_comm_mat()
+    meta <- beta_plot_meta()
 
     shiny::validate(
-      shiny::need(nrow(mat) > 2, "Select an area with at least 3 samples to compute a PCoA.")
+      shiny::need(nrow(mat) > 2, "At least 3 samples are required to compute a PCoA.")
     )
 
-    # optional: transform to relative abundance to reduce library-size effects
-    rs <- rowSums(mat)
-    mat_rel <- mat
-    mat_rel[rs > 0, ] <- mat[rs > 0, , drop = FALSE] / rs[rs > 0]
 
-    # distance + ordination
-    d <- vegan::vegdist(mat_rel, method = "bray")
+    beta_method <- input$beta_metric %||% "bray"
+    mat_use <- as.matrix(mat)
+
+    if (beta_method %in% c("bray", "jaccard")) {
+      rs <- rowSums(mat_use, na.rm = TRUE)
+      mat_rel <- mat_use
+      mat_rel[rs > 0, ] <- mat_use[rs > 0, , drop = FALSE] / rs[rs > 0]
+
+      if (beta_method == "jaccard") {
+        mat_dist_input <- (mat_rel > 0) * 1
+      } else {
+        mat_dist_input <- mat_rel
+      }
+
+      d <- vegan::vegdist(mat_dist_input, method = beta_method)
+
+    } else if (beta_method == "euclidean") {
+      d <- stats::dist(mat_use, method = "euclidean")
+
+    } else if (beta_method == "robust.aitchison") {
+      shiny::validate(
+        shiny::need(all(mat_use >= 0, na.rm = TRUE),
+                    "Robust Aitchison distance requires non-negative values.")
+      )
+
+      d <- vegan::vegdist(mat_use, method = "robust.aitchison")
+    }
+
+
     ord <- stats::cmdscale(d, k = 2, eig = TRUE)
 
+    sample_ids <- rownames(mat_use)
+
+    shiny::validate(
+      shiny::need(!is.null(sample_ids), "Sample names are missing from the beta diversity matrix."),
+      shiny::need(length(sample_ids) == nrow(ord$points), "Mismatch between sample names and ordination points.")
+    )
+
     scores <- data.frame(
-      samp_name = rownames(ord$points),
+      samp_name = sample_ids,
       PC1 = ord$points[, 1],
       PC2 = ord$points[, 2],
       stringsAsFactors = FALSE
-    ) %>%
-      dplyr::left_join(meta, by = "samp_name") %>%
-      dplyr::mutate(Location = ifelse(is.na(Location) | Location == "", "Unknown", Location))
+    )
 
-    # percent variance (cmdscale eigenvalues; can be negative with non-euclidean distances)
+    plot_df <- scores %>%
+      dplyr::left_join(meta, by = "samp_name") %>%
+      dplyr::mutate(
+        group_label = as.character(group_label),
+        site_type   = as.character(site_type)
+      ) %>%
+      dplyr::filter(!is.na(group_label), nzchar(group_label)) %>%
+      dplyr::distinct(samp_name, group_label, site_type, .keep_all = TRUE)
+
+    shiny::validate(
+      shiny::need(nrow(plot_df) > 0, "No plotting metadata available for the current filters.")
+    )
+
     eig <- ord$eig
     eig_pos <- eig[eig > 0]
     pct1 <- if (length(eig_pos) >= 1) round(100 * eig_pos[1] / sum(eig_pos), 1) else NA_real_
     pct2 <- if (length(eig_pos) >= 2) round(100 * eig_pos[2] / sum(eig_pos), 1) else NA_real_
 
+    method_label <- switch(
+      beta_method,
+      bray             = "Bray-Curtis",
+      jaccard          = "Jaccard",
+      euclidean        = "Euclidean",
+      `robust.aitchison` = "Robust Aitchison",
+      beta_method
+    )
+
+    rank_label <- tools::toTitleCase(gsub("_", " ", div_filters()$tax_rank))
+    gene_label <- div_filters()$target_gene
+    primer_label <- div_filters()$primers
+
+    gene_suffix <- if (length(gene_label) > 0) {
+      paste0(" | Genes: ", paste(gene_label, collapse = ", "))
+    } else {
+      ""
+    }
+
+    primer_suffix <- if (length(primer_label) > 0) {
+      paste0(" | Primers: ", paste(primer_label, collapse = "; "))
+    } else {
+      ""
+    }
+
+    plot_title <- paste0(
+      "Beta diversity (PCoA; ", method_label, ") at ",
+      rank_label, " level",
+      gene_suffix, primer_suffix
+    )
+
+    # Build hover text explicitly so it always matches plot_df row count
+    plot_df <- plot_df %>%
+      dplyr::mutate(
+        hover_text = paste0(
+          "<b>Sample:</b> ", samp_name,
+          "<br><b>Group:</b> ", group_label,
+          "<br><b>Type:</b> ", site_type,
+          "<br><b>PC1:</b> ", sprintf("%.3f", PC1),
+          "<br><b>PC2:</b> ", sprintf("%.3f", PC2)
+        )
+      )
+
     plotly::plot_ly(
-      data = scores,
+      data = plot_df,
       x = ~PC1,
       y = ~PC2,
       type = "scatter",
       mode = "markers",
-      color = ~Location,
-      hovertemplate = paste(
-        "<b>Sample:</b> %{customdata[0]}<br>",
-        "<b>Location:</b> %{customdata[1]}<br>",
-        "<b>PC1:</b> %{x:.3f}<br>",
-        "<b>PC2:</b> %{y:.3f}<extra></extra>"
-      ),
-      customdata = ~cbind(samp_name, Location)
+      color = ~group_label,
+      colors = color_vec,
+      text = ~hover_text,
+      hoverinfo = "text"
     ) %>%
       plotly::layout(
-        title = "Beta diversity (PCoA; Bray–Curtis)",
-        xaxis = list(title = paste0("PC1", if (!is.na(pct1)) paste0(" (", pct1, "%)") else "")),
-        yaxis = list(title = paste0("PC2", if (!is.na(pct2)) paste0(" (", pct2, "%)") else "")),
-        margin = list(l = 60, r = 20, t = 50, b = 60)
+        title = list(
+          text = plot_title,
+          font = list(size = 20)
+        ),
+        font = list(size = 18),
+        xaxis = list(
+          title = list(
+            text = paste0("PC1", if (!is.na(pct1)) paste0(" (", pct1, "%)") else ""),
+            font = list(size = 20)
+          ),
+          tickfont = list(size = 16),
+          showgrid = FALSE,
+          showline = TRUE,
+          linecolor = "black"
+        ),
+        yaxis = list(
+          title = list(
+            text = paste0("PC2", if (!is.na(pct2)) paste0(" (", pct2, "%)") else ""),
+            font = list(size = 20)
+          ),
+          tickfont = list(size = 16),
+          showgrid = FALSE,
+          showline = TRUE,
+          linecolor = "black"
+        ),
+        legend = list(
+          font = list(size = 16)
+        ),
+        margin = list(l = 80, r = 30, t = 70, b = 80),
+        showlegend = TRUE
       )
   })
-
 
 
   #Krona plot
   output$tax_krona <- taxplore::renderKronaChart({
     det <- selected_detections()
+    req(det)
+
+    # floating-panel filters
+    det <- apply_species_filters(det)
+
+    # data-selection filters: target gene + primer only
+    det <- apply_diversity_dropdown_filters(
+      det,
+      list(
+        target_gene = div_filters()$target_gene,
+        primers     = div_filters()$primers
+      )
+    )
 
     shiny::validate(
       shiny::need(!is.null(det) && nrow(det) > 0,
                   "Select a cell/polygon (or draw a polygon) to display a Krona chart.")
     )
 
-    det0 <- det %>% sf::st_drop_geometry()
+    det0 <- det %>%
+      sf::st_drop_geometry()
 
     shiny::validate(
       shiny::need("organismQuantity" %in% names(det0),
                   "organismQuantity column is missing.")
     )
 
-    tax_ranks <- c("kingdom","phylum","class","order","family","genus")
+    tax_ranks <- c("kingdom", "phylum", "class", "order", "family", "genus")
 
-    krona_df <- det0 %>%
+    krona_occ_all <- det0 %>%
       dplyr::mutate(
         species = as.character(scientificName),
         qty     = as.numeric(organismQuantity)
@@ -2954,100 +4919,138 @@ server <- function(input, output, session){
         !is.na(qty), qty > 0
       ) %>%
       dplyr::group_by(dplyr::across(dplyr::all_of(c(tax_ranks, "species")))) %>%
-      dplyr::summarise(magnitude = sum(qty, na.rm = TRUE), .groups = "drop")
+      dplyr::summarise(
+        magnitude = sum(qty, na.rm = TRUE),
+        .groups   = "drop"
+      )
 
     shiny::validate(
-      shiny::need(nrow(krona_df) > 0, "No detections with organismQuantity > 0 in the current selection.")
+      shiny::need(
+        nrow(krona_occ_all) > 0,
+        "No detections with organismQuantity > 0 after the current target gene and primer filters."
+      )
     )
 
-    tax_df <- krona_df %>%
+    tax_occ_all <- krona_occ_all %>%
       dplyr::select(dplyr::all_of(c(tax_ranks, "species")))
 
     taxplore::plot_krona(
-      tax_df,
-      magnitude   = krona_df$magnitude,
+      tax_occ_all,
+      magnitude   = krona_occ_all$magnitude,
       total_label = "Sum organismQuantity"
     )
   })
 
+  #Helper to generate species vectors
+  get_species_vec <- function(det_sf, gene = NULL) {
+    req(det_sf)
+
+    occ_all <- det_sf
+
+    if (!is.null(gene)) {
+      occ_all <- occ_all %>% dplyr::filter(as.character(target_gene) == as.character(gene))
+    }
+
+    occ_all <- apply_species_filters(occ_all)
+
+    occ_all %>%
+      sf::st_drop_geometry() %>%
+      dplyr::pull(scientificName) %>%
+      as.character() %>%
+      unique() %>%
+      stats::na.omit() %>%
+      sort()
+  }
+
   # ---- species panel (drawn polygon OR click) ----
   output$species_panel <- renderUI({
 
+    active_groups()
+    filter_sara_on()
+    filter_ais_on()
+
     yr <- sel_year_chr()
 
-    # A) drawn polygon selection
-    poly <- drawn_poly()
-    if (!is.null(poly)) {
-
-      # choose which points table drives the list:
-      # Use species_sf_all (sf points with scientificName, year, marker/target_gene)
-      pts <- species_sf_all
-
-      if (yr != "All") {
-        pts <- pts %>% dplyr::filter(as.character(year) == yr)
-      }
-
-      inside <- pts[sf::st_within(pts, poly, sparse = FALSE), , drop = FALSE]
-
-      spp <- inside %>%
-        dplyr::distinct(scientificName) %>%
-        dplyr::arrange(scientificName) %>%
-        dplyr::pull(scientificName)
-
-      spp <- apply_interest_filter(spp)
-
-      if (length(spp) == 0) {
-        return(em(if (isTRUE(filter_sara_on()))
-          "No SARA Schedule 1 species fall inside the drawn polygon (with the current Year filter)."
-          else
-            "No species points fall inside the drawn polygon (with the current Year filter)."))
-      }
-
-      return(tagList(
-        strong(paste0(
-          "Drawn polygon selection (Year: ", yr, ")",
-          if (isTRUE(filter_sara_on())) " — SARA only" else ""
-        )),
-        tags$br(),
-        paste0("Points inside: ", nrow(inside)),
-        tags$br(),
-        paste0("Unique species: ", length(spp)),
-        tags$hr(),
-        tags$div(
-          style = "max-height: 350px; overflow-y: auto; padding-left: 10px;",
-          tags$ul(lapply(spp, tags$li))
-        ),
-        tags$hr(),
-        em("Tip: delete the drawn shape to return to grid/MPA click lists.")
-      ))
-    }
-
-    # B) click-based logic (your existing approach)
-    click <- input$map_shape_click
-    if (is.null(click) || is.null(click$id)) {
-      return(em("Click a grid cell or an MPA/AOI outline, or draw a polygon."))
-    }
-
-    groups_on <- input$map_groups %||% character(0)
-    show_total_grid <- "All" %in% groups_on
-    show_12S_grid   <- "12S" %in% groups_on
-    show_COI_grid   <- "COI" %in% groups_on
-    show_16S_grid   <- "16S" %in% groups_on
-    show_18S_grid   <- "18S" %in% groups_on
-    show_poly_total <- "Total species detected per MPA/AOI" %in% groups_on
-
-    make_list <- function(vec) {
-      if (length(vec) == 0) return(em("No data available"))
+    make_list_local <- function(vec, max_h = 220) {
+      if (length(vec) == 0) return(em("No species detected for this layer."))
       tags$div(
-        style = "max-height: 180px; overflow-y: auto; padding-left: 10px;",
+        style = paste0("max-height: ", max_h, "px; overflow-y: auto; padding-left: 10px;"),
         tags$ul(lapply(vec, tags$li))
       )
     }
 
-    # polygon click
+    render_by_layer_ui <- function(by_layer, header = NULL, max_h = 220) {
+      if (is.null(by_layer) || length(by_layer) == 0) {
+        return(em("Turn ON a richness layer (All / 12S / COI / 16S / 18S) to view species lists."))
+      }
+
+      ord <- c("All", "12S", "COI", "16S", "18S")
+      nm  <- intersect(ord, names(by_layer))
+      if (length(nm) == 0) nm <- names(by_layer)
+
+      panels <- tagList()
+      for (k in nm) {
+        vec <- by_layer[[k]]
+        panels <- tagAppendChildren(
+          panels,
+          tags$details(
+            open = TRUE,
+            tags$summary(strong(paste0(k, " (", length(vec), ")"))),
+            make_list_local(vec, max_h = max_h),
+            tags$hr()
+          )
+        )
+      }
+
+      if (!is.null(header)) tagList(header, tags$hr(), panels) else panels
+    }
+
+    layers_on <- active_richness_layers()
+    if (length(layers_on) == 0) {
+      return(em("Turn ON a richness layer (All / 12S / COI / 16S / 18S) to view species lists."))
+    }
+
+    sel_id <- selected_draw_id()
+    click  <- input$map_shape_click
+
+    # drawn polygon branch
+    if (!is.null(sel_id)) {
+      polys <- drawn_polys()
+      hit <- polys %>% dplyr::filter(draw_id == sel_id)
+      if (nrow(hit) == 0) return(em("No species detected for the current selection."))
+
+      pts <- species_sf_by_year[[yr]]
+      if (is.null(pts)) pts <- species_sf_min[0, ]
+
+      inside <- get_inside_cached(
+        selected_key = paste0("draw:", sel_id),
+        pts          = pts,
+        geom         = sf::st_geometry(hit),
+        year         = yr
+      )
+
+      by_layer_all <- get_species_by_layer_cached(
+        selected_key = paste0("draw:", sel_id),
+        det_sf       = inside,
+        year         = yr,
+        groups       = active_groups(),
+        sara_on      = isTRUE(filter_sara_on()),
+        ais_on       = isTRUE(filter_ais_on())
+      )
+
+      by_layer <- by_layer_all[intersect(names(by_layer_all), layers_on)]
+      poly_lab <- hit$draw_label[1] %||% sel_id
+
+      return(render_by_layer_ui(by_layer, strong(paste0("Drawn polygon: ", poly_lab)), 180))
+    }
+
+    if (is.null(click) || is.null(click$id)) {
+      return(em("Click a grid cell or an MPA/AOI outline, or draw a polygon."))
+    }
 
     if (grepl("\\|\\|", click$id)) {
-
+      groups_on <- input$map_groups %||% character(0)
+      show_poly_total <- "Total species detected per MPA/AOI" %in% groups_on
       if (!show_poly_total) {
         return(em("Turn ON “Total species detected per MPA/AOI” to view polygon species lists."))
       }
@@ -3056,237 +5059,251 @@ server <- function(input, output, session){
       p_type <- parts[1]
       p_name <- parts[2]
 
-      # Year-aware lookup
-      if (yr == "All") {
-        row <- poly_species_all %>%
-          dplyr::filter(site_type == p_type, site_name == p_name)
-      } else {
-        row <- poly_species_year %>%
-          dplyr::filter(site_type == p_type, site_name == p_name, year == yr)
-      }
+      poly_sel <- all_polys_click %>%
+        dplyr::filter(site_type == p_type, site_name == p_name)
 
-      spp <- if (nrow(row) == 0) character(0) else row$species[[1]]
-      spp <- apply_interest_filter(spp)
+      if (nrow(poly_sel) == 0) return(em("Polygon not found."))
 
-      if (length(spp) == 0) {
-        return(em(
-          if (yr == "All") "No species records in this MPA/AOI polygon."
-          else paste0("No species records in this MPA/AOI polygon for Year = ", yr, ".")
-        ))
-      }
+      pts <- species_sf_by_year[[yr]]
+      if (is.null(pts)) pts <- species_sf_min[0, ]
 
-      return(tagList(
-        strong(paste0(p_type, ": ", p_name)),
-        tags$br(),
-        paste0("Year: ", yr),
-        tags$br(),
-        paste("Total unique species:", length(spp)),
-        tags$hr(),
-        tags$div(
-          style = "max-height: 350px; overflow-y: auto; padding-left: 10px;",
-          tags$ul(lapply(sort(spp), tags$li))
-        )
-      ))
+      inside <- get_inside_cached(
+        selected_key = paste0("click:", click$id),
+        pts          = pts,
+        geom         = sf::st_geometry(poly_sel),
+        year         = yr
+      )
+
+      by_layer_all <- get_species_by_layer_cached(
+        selected_key = paste0("click:", click$id),
+        det_sf       = inside,
+        year         = yr,
+        groups       = active_groups(),
+        sara_on      = isTRUE(filter_sara_on()),
+        ais_on       = isTRUE(filter_ais_on())
+      )
+
+      by_layer <- by_layer_all[intersect(names(by_layer_all), layers_on)]
+      return(render_by_layer_ui(by_layer, strong(paste0(p_type, ": ", p_name)), 220))
     }
 
-    # grid click
     cid <- suppressWarnings(as.integer(click$id))
-    if (is.na(cid)) return(em("Click a grid cell or an MPA/AOI outline."))
-
-    # IMPORTANT: year-aware species tables
-    # If you have cell_species_2022_12S / cell_species_2023_12S, store them in lists like the grids:
-    # ---- dynamic species extraction for a cell + (optional) gene + year ----
-    get_cell_spp <- function(cid, gene = NULL, year = NULL) {
-      # gene=NULL + year=NULL = all genes/years
-      if (is.null(gene) && is.null(year)) {
-        row <- CELL_SPECIES_ALL %>% dplyr::filter(cell_id == cid)
-        if (nrow(row) == 0) return(character(0))
-        return(row$spp[[1]])
-      }
-
-      # gene+year key
-      key <- paste(gene, year, sep = "_")
-      if (!key %in% names(CELL_SPECIES_BY_KEY)) return(character(0))
-
-      row <- CELL_SPECIES_BY_KEY[[key]] %>% dplyr::filter(cell_id == cid)
-      if (nrow(row) == 0) return(character(0))
-      row$spp[[1]]
+    if (is.na(cid)) {
+      return(em("Click a grid cell or an MPA/AOI outline."))
     }
 
-    # total species list respects Year filter
-    spp_total <- if (yr == "All") {
-      get_cell_spp(cid, gene = NULL, year = NULL)
-    } else {
-      # all genes but this year: easiest from detections sf (reliable)
-      pts_y <- species_sf_all %>% dplyr::filter(as.character(year) == yr)
-      inside <- pts_y[sf::st_within(pts_y, sf::st_geometry(grid_clip %>% dplyr::filter(cell_id == cid)), sparse = FALSE), , drop = FALSE]
-      sort(unique(as.character(inside$scientificName)))
+    pts <- species_sf_by_year[[yr]]
+    if (is.null(pts)) pts <- species_sf_min[0, ]
+
+    cell_poly <- grid_clip %>% dplyr::filter(cell_id == cid)
+
+    det <- get_inside_cached(
+      selected_key = paste0("click:", click$id),
+      pts          = pts,
+      geom         = sf::st_geometry(cell_poly),
+      year         = yr
+    )
+
+    if (is.null(det) || nrow(det) == 0) {
+      return(em("No species detected for the current selection."))
     }
 
-    spp_total <- apply_interest_filter(spp_total)
+    by_layer_all <- get_species_by_layer_cached(
+      selected_key = paste0("click:", click$id),
+      det_sf       = det,
+      year         = yr,
+      groups       = active_groups(),
+      sara_on      = isTRUE(filter_sara_on()),
+      ais_on       = isTRUE(filter_ais_on())
+    )
 
-    # gene-specific lists only if that gene-year exists
-    spp_12S <- if (yr == "All") character(0) else get_cell_spp(cid, gene = "12S", year = yr)
-    spp_COI <- if (yr == "All") character(0) else get_cell_spp(cid, gene = "COI", year = yr)
-    spp_16S <- if (yr == "All") character(0) else get_cell_spp(cid, gene = "16S", year = yr)
-    spp_18S <- if (yr == "All") character(0) else get_cell_spp(cid, gene = "18S", year = yr)
-
-    spp_12S <- apply_interest_filter(spp_12S)
-    spp_COI <- apply_interest_filter(spp_COI)
-    spp_16S <- apply_interest_filter(spp_16S)
-    spp_18S <- apply_interest_filter(spp_18S)
-
-    if (!show_total_grid && !show_12S_grid && !show_COI_grid && !show_16S_grid && !show_18S_grid) {
-      return(em("Turn ON a richness layer (all markers / 12S / COI / 16S / 18S) to view the species list for grid cells."))
-    }
-
-    panels <- tagList()
-
-    if (show_total_grid) {
-      panels <- tagAppendChildren(
-        panels,
-        tags$details(open = TRUE,
-                     tags$summary(strong(paste0("Total unique species (", length(spp_total), ")"))),
-                     make_list(spp_total)
-        )
-      )
-    }
-
-    if (show_12S_grid) {
-      panels <- tagAppendChildren(
-        panels,
-        tags$details(open = (!show_total_grid && !show_12S_grid),
-                     tags$summary(strong(paste0("12S species (", length(spp_12S), ")"))),
-                     make_list(spp_12S)
-        )
-      )
-    }
-
-    if (show_COI_grid) {
-      panels <- tagAppendChildren(
-        panels,
-        tags$details(open = (!show_total_grid && !show_COI_grid),
-                     tags$summary(strong(paste0("COI species (", length(spp_COI), ")"))),
-                     make_list(spp_COI)
-        )
-      )
-    }
-
-    if (show_16S_grid) {
-      panels <- tagAppendChildren(
-        panels,
-        tags$details(open = (!show_total_grid && !show_16S_grid),
-                     tags$summary(strong(paste0("16S species (", length(spp_16S), ")"))),
-                     make_list(spp_16S)
-        )
-      )
-    }
-
-    if (show_18S_grid) {
-      panels <- tagAppendChildren(
-        panels,
-        tags$details(open = (!show_total_grid && !show_18S_grid),
-                     tags$summary(strong(paste0("18S species (", length(spp_18S), ")"))),
-                     make_list(spp_18S)
-        )
-      )
-    }
-
-    panels
+    by_layer <- by_layer_all[intersect(names(by_layer_all), layers_on)]
+    render_by_layer_ui(by_layer, strong(paste0("Grid cell: ", cid)), 220)
   })
 
   output$detections_tbl <- DT::renderDT({
-    if (!isTRUE(filter_sara_on()) && !isTRUE(filter_ais_on())) {
-      return(DT::datatable(
-        data.frame(Message = "Click “Species at Risk (SARA)” or “Aquatic Invasive Species (AIS)” to view filtered detections."),
-        rownames = FALSE,
-        options = list(dom = "t")
-      ))
-    }
-
     det <- selected_detections()
+
     if (is.null(det) || nrow(det) == 0) {
       return(DT::datatable(
-        data.frame(Message = "No detections in the current selection."),
+        data.frame(Message = "Click an MPA/AOI polygon/grid cell, or draw a polygon, to view detection details"),
         rownames = FALSE,
         options = list(dom = "t")
       ))
     }
 
-    det0 <- det %>%
-      sf::st_drop_geometry() %>%
-      dplyr::mutate(scientificName = as.character(scientificName))
-
-    det <- det %>%
-      sf::st_drop_geometry() %>%
-      dplyr::mutate(
-        scientificName = as.character(scientificName),
-        samp_name      = if ("samp_name" %in% names(.)) as.character(samp_name) else NA_character_,
-        #source_file    = if ("source_file" %in% names(.)) as.character(source_file) else NA_character_,
-        year           = if ("year" %in% names(.)) as.character(year) else NA_character_,
-        target_gene    = if ("target_gene" %in% names(.)) as.character(target_gene) else NA_character_
-      )
-
-    keep <- rep(TRUE, nrow(det0))
-    if (isTRUE(filter_sara_on())) keep <- keep & det0$scientificName %in% sara_set()
-    if (isTRUE(filter_ais_on()))  keep <- keep & det0$scientificName %in% ais_set()
-
-    det_f <- det0[keep, , drop = FALSE]
+    det_f <- apply_species_filters(det)
 
     if (nrow(det_f) == 0) {
       return(DT::datatable(
-        data.frame(Message = paste0("No detections match the current filter (", active_filters_label(), ").")),
+        data.frame(Message = "No detections match the current Year and/or Group filters."),
         rownames = FALSE,
         options = list(dom = "t")
       ))
     }
 
     det_show <- det_f %>%
-      dplyr::select(dplyr::any_of(c(
-        "scientificName","samp_name","eventDate","year","month",
-        "target_gene","organismQuantity","organismQuantityType",
-        "sampleSizeValue","sampleSizeUnit", "occurrenceID"
-      )))%>%
-      dplyr::arrange(scientificName, year, samp_name)
+      dplyr::mutate(
+        decimalLongitude = sf::st_coordinates(.)[, 1],
+        decimalLatitude  = sf::st_coordinates(.)[, 2]
+      ) %>%
+      sf::st_drop_geometry()
 
-    DT::datatable(det_show, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE))
+    needed_cols <- c(
+      "kingdom", "phylum", "class", "order", "family", "genus",
+      "scientificName", "samp_name", "target_gene", "eventDate",
+      "pcr_primer_name_forward", "pcr_primer_name_reverse",
+      "pcr_primer_forward", "pcr_primer_reverse",
+      "organismQuantity", "project_contact", "LClabel",
+      "samp_size", "samp_size_unit",
+      "minimumDepthInMeters", "maximumDepthInMeters",
+      "bathymetry",
+      "decimalLatitude", "decimalLongitude",
+      "flags", "dataset_id"
+    )
+
+    missing_cols <- setdiff(needed_cols, names(det_show))
+    for (nm in missing_cols) {
+      det_show[[nm]] <- NA_character_
+    }
+
+    fwd_col <- get_forward_primer_col(det_show)
+    rev_col <- get_reverse_primer_col(det_show)
+
+    fwd_vals <- if (!is.null(fwd_col)) as.character(det_show[[fwd_col]]) else rep(NA_character_, nrow(det_show))
+    rev_vals <- if (!is.null(rev_col)) as.character(det_show[[rev_col]]) else rep(NA_character_, nrow(det_show))
+
+    fwd_vals <- trimws(fwd_vals)
+    rev_vals <- trimws(rev_vals)
+    fwd_vals[fwd_vals == ""] <- NA_character_
+    rev_vals[rev_vals == ""] <- NA_character_
+
+    det_show$Primers <- dplyr::case_when(
+      !is.na(fwd_vals) & !is.na(rev_vals) ~ paste(fwd_vals, rev_vals, sep = " | "),
+      !is.na(fwd_vals) ~ fwd_vals,
+      !is.na(rev_vals) ~ rev_vals,
+      TRUE ~ NA_character_
+    )
+
+    det_show <- det_show %>%
+      dplyr::mutate(
+        across(c(
+          scientificName, samp_name, target_gene,
+          bathymetry, flags, dataset_id, eventDate
+        ), ~as.character(.)),
+        Volume = dplyr::case_when(
+          !is.na(samp_size) & !is.na(samp_size_unit) ~ paste(samp_size, samp_size_unit),
+          !is.na(samp_size) ~ as.character(samp_size),
+          !is.na(samp_size_unit) ~ as.character(samp_size_unit),
+          TRUE ~ NA_character_
+        ),
+        `Depth Range (m)` = dplyr::case_when(
+          !is.na(minimumDepthInMeters) & !is.na(maximumDepthInMeters) ~
+            paste(minimumDepthInMeters, maximumDepthInMeters, sep = " | "),
+          !is.na(minimumDepthInMeters) ~ as.character(minimumDepthInMeters),
+          !is.na(maximumDepthInMeters) ~ as.character(maximumDepthInMeters),
+          TRUE ~ NA_character_
+        )
+      ) %>%
+      dplyr::arrange(scientificName, samp_name) %>%
+      dplyr::select(
+        kingdom,
+        phylum,
+        class,
+        order,
+        family,
+        genus,
+        scientificName,
+        samp_name,
+        eventDate,
+        target_gene,
+        Primers,
+        organismQuantity,
+        Volume,
+        `Depth Range (m)`,
+        bathymetry,
+        decimalLatitude,
+        decimalLongitude,
+        flags,
+        dataset_id,
+        project_contact,
+        LClabel
+      )
+
+    DT::datatable(
+      det_show,
+      rownames = FALSE,
+      colnames = c(
+        "Kingdom",
+        "Phylum",
+        "Class",
+        "Order",
+        "Family",
+        "Genus",
+        "Species",
+        "Sample Name",
+        "Date",
+        "Target Gene",
+        "Primers",
+        "# of Sequence Reads",
+        "Volume",
+        "Minimum/Maximum Depth (m)",
+        "Bathymetry",
+        "Latitude",
+        "Longitude",
+        "OBIS Data Flags",
+        "OBIS Dataset Identifier",
+        "Project Contact",
+        "Indigenous Acknowledgement & Contributions"
+      ),
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE,
+        autoWidth = TRUE
+      ),
+      class = "nowrap"
+    )
   })
-
 
   # highlight selected cell (outline on top)
   observeEvent(input$map_shape_click, {
-    cid <- clicked_cell()
-    if (is.na(cid)) return(NULL)  # <- stops crash when click$id is NULL
+    click <- input$map_shape_click
+    req(click, click$id)
 
-    sel <- grid_clip %>% dplyr::filter(cell_id == cid)
+    id <- as.character(click$id)
 
-    leafletProxy("map") %>%
-      clearGroup("selected_cell") %>%
-      addPolygons(
-        data = sel,
-        group = "selected_cell",
-        fillOpacity = 0,
-        color = "white",
-        weight = 3
-      )
+    polys <- drawn_polys()
+
+    # clicked one of the stored drawn polygons
+    if (nrow(polys) > 0 && id %in% polys$draw_id) {
+      selected_draw_id(id)
+      session$sendCustomMessage("openFloating", list(id = id))
+      return()
+    }
+
+    # otherwise switch away from drawn polygons
+    selected_draw_id(NULL)
+
+    is_mpa  <- grepl("\\|\\|", id)
+    is_cell <- !is.na(suppressWarnings(as.integer(id)))
+
+    if (is_mpa || is_cell) {
+      session$sendCustomMessage("openFloating", list(id = id))
+    }
   }, ignoreInit = TRUE)
 
 }
 
 shinyApp(ui, server)
 
-
 ###Updates from meeting
 
-#add multiple polygon options to alpha diversity plot - START HERE
-#fix beta diversity PCoA
-#fix bugs
-#add Luke's code for read_data and protocol cards +NMDS/barchart when he is done
+#edit organism quantity for read_data
 
+###Wishlist items
+#add polygons for other marine conservation regions in the Atlantic
 #add NMDS plot for community structure - see code Nick provides - year, season, depth
-#add button to download datasets based on selected MPA/AOI polygon and/or drawn polygons
+
 
 #draft skeleton of paper with a sentence or two of why each was done
-#draft email to meet with co-authors in two weeks (after march break)
-
 #Look into journals for publishing function manuscript (maybe ecological informatics)
