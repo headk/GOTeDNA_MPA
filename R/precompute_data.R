@@ -1,31 +1,3 @@
-library(sf)
-library(dplyr)
-library(leaflet)
-library(leaflet.extras)
-library(arcgislayers)
-library(tidyr)
-library(ggplot2)
-library(scico)
-library(wesanderson)
-library(htmltools)
-library(htmlwidgets)
-library(DT)
-library(shinyjs)
-library(stringr)
-library(openxlsx)
-library(purrr)
-library(readr)
-library(robis)
-library(bslib)
-library(shiny)
-library(phyloseq)
-library(taxplore)  #Here is the link for taxplore tutorial once data is linked from OBIS: https://markschl.github.io/taxplore/articles/tutorial.html#shiny-apps
-library(plotly)
-library(worrms)
-library(vegan)
-library(forcats)
-library(shinycssloaders)
-
 #Canadian MPA Network Shapefiles and planning regions extracted from the Canadian Database of Protected and Conserved Areas. This data was filtered for the three MPAs targeted in the Maritimes region.
 
 #Function to find St. Anns Bank, Musquash, Gully (MPA) and Eastern Shore Islands network, Fundian Channel-BrownsBank (AOI) polygons + transform to WGS84 for leaflet
