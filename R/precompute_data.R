@@ -353,8 +353,8 @@ read_data <- function(
 }
 
 STORED_DATA <- read_data()
-saveRDS(STORED_DATA, "./data/test_read_data_file.rds")
-STORED_DATA <- readRDS("./data/test_read_data_file.rds")
+saveRDS(STORED_DATA, "./data/OBIS_data.rds")
+STORED_DATA <- readRDS("./data/OBIS_data.rds")
 
 ################DO NOT CHANGE ABOVE CODE
 
@@ -2490,6 +2490,7 @@ $(function(){
           "Bray-Curtis"      = "bray",
           "Jaccard"          = "jaccard",
           "Euclidean"        = "euclidean",
+          "Aitchison"        = "Aitchison",       #*NEW
           "Robust Aitchison" = "robust.aitchison"
         ),
         selected = "bray"
@@ -5035,19 +5036,6 @@ const obs = new MutationObserver(() => {
     }
   })
 
-  #Checks for ordination (beta)
-  observe({
-  mat <- beta_comm_mat()
-  req(mat)
-
-  lib_sizes <- rowSums(mat, na.rm = TRUE)
-
-  message("BETA total samples: ", nrow(mat))
-  message("BETA zero-sum samples: ", sum(lib_sizes == 0, na.rm = TRUE))
-  message("BETA min library size: ", min(lib_sizes, na.rm = TRUE))
-  message("BETA median library size: ", median(lib_sizes, na.rm = TRUE))
-  message("BETA max library size: ", max(lib_sizes, na.rm = TRUE))
-})
 
   #Create rarefied matrix for alpha diversity
   comm_mat_mpa_rarefied <- reactive({
@@ -5178,7 +5166,24 @@ const obs = new MutationObserver(() => {
     dplyr::bind_rows(in_mpa, in_drawn)
   })
 
-  # ---- unique sample x taxon matrix for ONE shared ordination ----
+  # ---- CLR helper for beta diversity ----
+  clr_transform <- function(mat, pseudocount = 1) {
+    mat <- as.matrix(mat)
+
+    if (any(mat < 0, na.rm = TRUE)) {
+      stop("CLR transformation requires non-negative values.")
+    }
+
+    mat_pc <- mat + pseudocount
+
+    log_mat <- log(mat_pc)
+
+    gm <- rowMeans(log_mat, na.rm = TRUE)
+
+    sweep(log_mat, 1, gm, FUN = "-")
+  }
+
+  # ---- unique sample x taxon matrix for ONE shared ordination ---- *NEW
   beta_comm_mat <- reactive({
     det <- diversity_detections_beta()
     req(det)
@@ -5234,6 +5239,76 @@ const obs = new MutationObserver(() => {
     )
 
     mat
+  })
+
+  # ---- metric-specific beta preprocessing ---- *NEW*
+  beta_mat_processed <- reactive({
+    mat <- beta_comm_mat()
+    req(mat)
+
+    beta_method <- input$beta_metric %||% "bray"
+    mat <- as.matrix(mat)
+
+    shiny::validate(
+      shiny::need(nrow(mat) > 0, "No samples available for beta diversity."),
+      shiny::need(ncol(mat) > 0, "No taxa available for beta diversity.")
+    )
+
+    if (beta_method %in% c("bray", "euclidean")) {
+      # Hellinger transformation
+      mat_out <- vegan::decostand(mat, method = "hellinger")
+
+    } else if (beta_method == "jaccard") {
+      # Presence-absence
+      mat_out <- (mat > 0) * 1
+
+    } else if (beta_method == "aitchison") {
+      # CLR transformation
+      mat_out <- clr_transform(mat, pseudocount = 1)
+
+    } else if (beta_method == "robust.aitchison") {
+      # Keep raw non-negative matrix; vegan::vegdist will handle this directly
+      shiny::validate(
+        shiny::need(all(mat >= 0, na.rm = TRUE),
+                    "Robust Aitchison distance requires non-negative values.")
+      )
+      mat_out <- mat
+
+    } else {
+      mat_out <- mat
+    }
+
+    keep <- rowSums(is.na(mat_out)) == 0
+    mat_out <- mat_out[keep, , drop = FALSE]
+
+    shiny::validate(
+      shiny::need(nrow(mat_out) > 1, "Not enough valid samples remain for beta diversity.")
+    )
+
+    mat_out
+  })
+
+  #Beta diagnostics - Checks for ordination (beta)  *NEW
+  observe({
+    mat <- beta_comm_mat()
+    req(mat)
+
+    lib_sizes <- rowSums(mat, na.rm = TRUE)
+
+    message("BETA raw samples: ", nrow(mat))
+    message("BETA zero-sum samples: ", sum(lib_sizes == 0, na.rm = TRUE))
+    message("BETA min library size: ", min(lib_sizes, na.rm = TRUE))
+    message("BETA median library size: ", median(lib_sizes, na.rm = TRUE))
+    message("BETA max library size: ", max(lib_sizes, na.rm = TRUE))
+  })
+
+  observe({
+    mat <- beta_mat_processed()
+    req(mat)
+
+    message("BETA processed samples: ", nrow(mat))
+    message("BETA processed taxa: ", ncol(mat))
+    message("BETA metric: ", input$beta_metric %||% "bray")
   })
 
   # ---- metadata for plotting: samples can belong to multiple groups ----
@@ -5536,46 +5611,52 @@ const obs = new MutationObserver(() => {
       )
   })
 
-  #Beta diversity
+  #Beta diversity *NEW
   output$beta_pcoa <- plotly::renderPlotly({
-    mat  <- beta_comm_mat()
-    meta <- beta_plot_meta()
+    mat_use <- beta_mat_processed()
+    meta    <- beta_plot_meta()
 
     shiny::validate(
-      shiny::need(nrow(mat) > 2, "At least 3 samples are required to compute a PCoA.")
+      shiny::need(nrow(mat_use) > 2, "At least 3 samples are required to compute a PCoA.")
     )
 
-
     beta_method <- input$beta_metric %||% "bray"
-    mat_use <- as.matrix(mat)
 
-    if (beta_method %in% c("bray", "jaccard")) {
-      rs <- rowSums(mat_use, na.rm = TRUE)
-      mat_rel <- mat_use
-      mat_rel[rs > 0, ] <- mat_use[rs > 0, , drop = FALSE] / rs[rs > 0]
+    if (beta_method == "bray") {
+      d <- vegan::vegdist(mat_use, method = "bray")
 
-      if (beta_method == "jaccard") {
-        mat_dist_input <- (mat_rel > 0) * 1
-      } else {
-        mat_dist_input <- mat_rel
-      }
-
-      d <- vegan::vegdist(mat_dist_input, method = beta_method)
+    } else if (beta_method == "jaccard") {
+      d <- vegan::vegdist(mat_use, method = "jaccard", binary = TRUE)
 
     } else if (beta_method == "euclidean") {
       d <- stats::dist(mat_use, method = "euclidean")
 
-    } else if (beta_method == "robust.aitchison") {
-      shiny::validate(
-        shiny::need(all(mat_use >= 0, na.rm = TRUE),
-                    "Robust Aitchison distance requires non-negative values.")
-      )
+    } else if (beta_method == "aitchison") {
+      d <- stats::dist(mat_use, method = "euclidean")
 
+    } else if (beta_method == "robust.aitchison") {
       d <- vegan::vegdist(mat_use, method = "robust.aitchison")
+
+    } else {
+      shiny::validate(
+        shiny::need(FALSE, "Unsupported beta diversity metric selected.")
+      )
     }
 
+    shiny::validate(
+      shiny::need(all(is.finite(as.vector(d))),
+                  "Distance matrix contains non-finite values for the current filters/metric.")
+    )
 
-    ord <- stats::cmdscale(d, k = 2, eig = TRUE)
+    ord <- tryCatch(
+      stats::cmdscale(d, k = 2, eig = TRUE),
+      error = function(e) NULL
+    )
+
+    shiny::validate(
+      shiny::need(!is.null(ord), "PCoA could not be computed for the current beta diversity selection."),
+      shiny::need(!is.null(ord$points), "PCoA returned no coordinates.")
+    )
 
     sample_ids <- rownames(mat_use)
 
@@ -5611,9 +5692,10 @@ const obs = new MutationObserver(() => {
 
     method_label <- switch(
       beta_method,
-      bray             = "Bray-Curtis",
-      jaccard          = "Jaccard",
-      euclidean        = "Euclidean",
+      bray      = "Bray-Curtis (Hellinger transformed)",
+      jaccard   = "Jaccard (presence-absence)",
+      euclidean = "Euclidean (Hellinger transformed)",
+      aitchison = "Aitchison (CLR transformed)",
       `robust.aitchison` = "Robust Aitchison",
       beta_method
     )
@@ -5640,7 +5722,6 @@ const obs = new MutationObserver(() => {
       gene_suffix, primer_suffix
     )
 
-    # Build hover text explicitly so it always matches plot_df row count
     plot_df <- plot_df %>%
       dplyr::mutate(
         hover_text = paste0(
