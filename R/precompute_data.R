@@ -2486,6 +2486,7 @@ $(function(){
     id = "sec_div", class = "scroll-section",
     h3("Diversity Metrics"),
 
+    # ---- Top controls ----
     div(
       class = "data-select-grid",
 
@@ -2513,120 +2514,218 @@ $(function(){
           "alpha_metric",
           "Alpha Diversity",
           choices = c(
-            "Observed (Richness)" = "observed",
-            "Shannon"             = "shannon",
-            "Simpson"             = "simpson",
-            "InvSimpson"          = "invsimpson",
-            "ACE"                 = "ace"
+            "Observed Richness" = "observed",
+            "Shannon" = "shannon",
+            "Simpson" = "simpson",
+            "Inverse Simpson" = "invsimpson",
+            "ACE" = "ace",
+            "Pielou's Evenness" = "pielou"
           ),
           selected = "observed"
         )
       ),
 
       div(class = "data-select-item"),
-      div(class = "data-select-item"),
       div(class = "data-select-item")
-    )
-  ),
+    ),
 
-    # ---- Alpha plot (full width row) ----
-  fluidRow(
-    column(
-      width = 8,
-      offset = 2,
-      shinycssloaders::withSpinner(
-        plotly::plotlyOutput("alpha_boxplot", height = "700px"),
-        type = 4
-      )
-    )
-  ),
-
-  fluidRow(
-    column(
-      width = 8,
-      offset = 2,
-      tags$div(
-        style = "margin-top: 10px; font-size: 15px; color: #8a6d6d;",
-        textOutput("alpha_warning_text", inline = TRUE)
-      )
-    )
-  ),
-
-  fluidRow(
-    column(
-      width = 8,
-      offset = 2,
-      tags$div(
-        style = "margin-top: 10px; font-size: 16px;",
-        strong(textOutput("alpha_stats_text", inline = TRUE))
-      ),
-      DT::DTOutput("alpha_pairwise_tbl")
-    )
-  ),
-
-  # ---- Beta plot controls ----
-  div(
-    class = "data-select-grid",
-
-    div(class = "data-select-item"),   # empty first column
-
-    div(
-      class = "data-select-item",
-      selectInput(
-        "beta_metric",
-        "Beta Diversity",
-        choices = c(
-          "Bray-Curtis"      = "bray",
-          "Jaccard"          = "jaccard",
-          "Euclidean"        = "euclidean",
-          "Aitchison"        = "aitchison",       #*NEW
-          "Robust Aitchison" = "robust.aitchison"
-        ),
-        selected = "bray"
+    # ---- Alpha plot ----
+    fluidRow(
+      column(
+        width = 8,
+        offset = 2,
+        shinycssloaders::withSpinner(
+          plotly::plotlyOutput("alpha_boxplot", height = "700px"),
+          type = 4
+        )
       )
     ),
 
-    div(class = "data-select-item"),
-    div(class = "data-select-item")
-  ),
-
-  # ---- Beta plot ----
-  fluidRow(
-    column(
-      width = 9,
-      offset = 2,
-      shinycssloaders::withSpinner(
-        plotly::plotlyOutput("beta_pcoa", height = "700px"),
-        type = 4
+    # ---- Alpha warning ----
+    fluidRow(
+      column(
+        width = 8,
+        offset = 2,
+        tags$div(
+          style = "margin-top: 10px; font-size: 15px; color: #8a6d6d;",
+          textOutput("alpha_warning_text", inline = TRUE)
+        )
       )
-    )
-  ),
+    ),
 
-  fluidRow(
-    column(
-      width = 8,
-      offset = 2,
-      tags$div(
-        style = "margin-top: 10px; font-size: 15px; color: #8a6d6d;",
-        textOutput("beta_warning_text", inline = TRUE)
+    # ---- Alpha overall stats ----
+    fluidRow(
+      column(
+        width = 8,
+        offset = 2,
+        tags$div(
+          style = "margin-top: 10px; font-size: 16px;",
+          strong(textOutput("alpha_stats_text", inline = TRUE))
+        )
       )
-    )
-  ),
+    ),
 
-  fluidRow(
-    column(
-      width = 8,
-      offset = 2,
-      tags$div(
-        style = "margin-top: 10px; font-size: 16px;",
-        strong(textOutput("beta_stats_text", inline = TRUE))
+    # ---- Alpha tabs below plot ----
+
+    fluidRow(
+      column(
+        width = 8,
+        offset = 2,
+        div(
+          style = "margin-top: 16px;",
+          tabsetPanel(
+            id = "alpha_results_tabs",
+            type = "tabs",
+
+            tabPanel(
+              "Summary statistics",
+              br(),
+              DT::DTOutput("alpha_summary_tbl")
+            ),
+
+            tabPanel(
+              "Pairwise p-values",
+              br(),
+              DT::DTOutput("alpha_pairwise_tbl")
+            )
+          )
+        ),
+        tags$div(
+          style = "margin-top: 8px; font-size: 13px; color: #555;",
+          HTML("* p ≤ 0.05&nbsp;&nbsp;&nbsp;** p ≤ 0.01&nbsp;&nbsp;&nbsp;*** p ≤ 0.001&nbsp;&nbsp;&nbsp;. p ≤ 0.1")
+        )
+      )
+    ),
+
+    # ---- Beta controls ----
+    div(
+      class = "data-select-grid",
+      style = "margin-top: 28px;",
+
+      div(class = "data-select-item"),
+
+      div(
+        class = "data-select-item",
+        selectInput(
+          "beta_metric",
+          "Beta Diversity",
+          choices = c(
+            "Bray-Curtis"      = "bray",
+            "Jaccard"          = "jaccard",
+            "Euclidean"        = "euclidean",
+            "Aitchison"        = "aitchison",
+            "Robust Aitchison" = "robust.aitchison"
+          ),
+          selected = "bray"
+        )
       ),
-      tags$div(
-        style = "margin-top: 6px; font-size: 15px;",
-        textOutput("beta_dispersion_text", inline = TRUE)
+
+      div(class = "data-select-item"),
+      div(class = "data-select-item")
+    ),
+
+    # ---- Beta plot ----
+    fluidRow(
+      column(
+        width = 8,
+        offset = 2,
+        shinycssloaders::withSpinner(
+          plotly::plotlyOutput("beta_pcoa", height = "700px"),
+          type = 4
+        )
+      )
+    ),
+
+    fluidRow(
+      column(
+        width = 8,
+        offset = 2,
+        tags$div(
+          style = "margin-top: 10px; font-size: 15px; color: #8a6d6d;",
+          textOutput("beta_warning_text", inline = TRUE)
+        )
+      )
+    ),
+
+    fluidRow(
+      column(
+        width = 8,
+        offset = 2,
+        tags$div(
+          style = "margin-top: 10px; font-size: 16px;",
+          strong(textOutput("beta_stats_text", inline = TRUE))
+        ),
+        tags$div(
+          style = "margin-top: 6px; font-size: 15px;",
+          textOutput("beta_dispersion_text", inline = TRUE)
+        )
       )
     )
   ),
+  #
+  # # ---- Beta plot controls ----
+  # div(
+  #   class = "data-select-grid",
+  #
+  #   div(class = "data-select-item"),   # empty first column
+  #
+  #   div(
+  #     class = "data-select-item",
+  #     selectInput(
+  #       "beta_metric",
+  #       "Beta Diversity",
+  #       choices = c(
+  #         "Bray-Curtis"      = "bray",
+  #         "Jaccard"          = "jaccard",
+  #         "Euclidean"        = "euclidean",
+  #         "Aitchison"        = "aitchison",       #*NEW
+  #         "Robust Aitchison" = "robust.aitchison"
+  #       ),
+  #       selected = "bray"
+  #     )
+  #   ),
+  #
+  #   div(class = "data-select-item"),
+  #   div(class = "data-select-item")
+  # ),
+  #
+  # # ---- Beta plot ----
+  # fluidRow(
+  #   column(
+  #     width = 8,
+  #     offset = 2,
+  #     shinycssloaders::withSpinner(
+  #       plotly::plotlyOutput("beta_pcoa", height = "700px"),
+  #       type = 4
+  #     )
+  #   )
+  # ),
+  #
+  # fluidRow(
+  #   column(
+  #     width = 8,
+  #     offset = 2,
+  #     tags$div(
+  #       style = "margin-top: 10px; font-size: 15px; color: #8a6d6d;",
+  #       textOutput("beta_warning_text", inline = TRUE)
+  #     )
+  #   )
+  # ),
+  #
+  # fluidRow(
+  #   column(
+  #     width = 8,
+  #     offset = 2,
+  #     tags$div(
+  #       style = "margin-top: 10px; font-size: 16px;",
+  #       strong(textOutput("beta_stats_text", inline = TRUE))
+  #     ),
+  #     tags$div(
+  #       style = "margin-top: 6px; font-size: 15px;",
+  #       textOutput("beta_dispersion_text", inline = TRUE)
+  #     )
+  #   )
+  # ),
 
   # ---- Taxonomic Pie Chart ----
   div(
@@ -2634,7 +2733,7 @@ $(function(){
     h3("Taxonomic Pie Chart"),
 
     shinycssloaders::withSpinner(
-      taxplore::KronaChartOutput("tax_krona", height = "700px"),
+      taxplore::KronaChartOutput("tax_krona", height = "800px"),
       type = 4
     )
   )
@@ -3928,11 +4027,13 @@ server <- function(input, output, session){
     )
   })
 
-  observe({
+  observeEvent(compare_polygon_choices(), {
     choices <- compare_polygon_choices()
 
-    cur_sel <- input$div_compare_polygons %||% character(0)
+    cur_sel <- isolate(input$div_compare_polygons %||% character(0))
     sel_keep <- intersect(cur_sel, choices)
+
+    freezeReactiveValue(input, "div_compare_polygons")
 
     updateSelectizeInput(
       session  = session,
@@ -3941,22 +4042,25 @@ server <- function(input, output, session){
       selected = sel_keep,
       server   = TRUE
     )
-  })
+  }, ignoreInit = FALSE)
 
   # ---- confirmed diversity controls ----
   div_filters <- reactiveVal(
     list(
-      tax_rank    = "scientificName",
       target_gene = character(0),
       primers     = character(0),
       polygons      = character(0)
     )
   )
 
+  #taxonomic selection reactive #NEW
+  active_tax_rank <- reactive({
+    input$tax_rank %||% "scientificName"
+  })
+
   observeEvent(input$div_apply, {
     div_filters(
       list(
-        tax_rank    = input$tax_rank %||% "scientificName",
         target_gene = input$div_target_gene %||% character(0),
         primers     = input$div_primer %||% character(0),
         polygons      = input$div_compare_polygons %||% character(0)
@@ -4042,7 +4146,6 @@ server <- function(input, output, session){
 
   observeEvent(
     list(
-      input$tax_rank,
       input$div_target_gene,
       input$div_primer,
       input$div_compare_polygons,
@@ -4362,10 +4465,6 @@ server <- function(input, output, session){
 
         dat <- add_primer_combo(dat)
         message("Primer combo added")
-
-        rank_col <- filters$tax_rank %||% "scientificName"
-        message("Rank column: ", rank_col)
-
 
         preferred_cols <- c(
           "occurrenceID", "scientificName",
@@ -5125,7 +5224,7 @@ const obs = new MutationObserver(() => {
                   "organismQuantity column is missing.")
     )
 
-    rank_col <- div_filters()$tax_rank
+    rank_col <- active_tax_rank()
 
     occ_all2 <- occ_all %>%
       dplyr::mutate(
@@ -5409,7 +5508,7 @@ const obs = new MutationObserver(() => {
       shiny::need("organismQuantity" %in% names(occ_all), "organismQuantity column is missing.")
     )
 
-    rank_col <- div_filters()$tax_rank
+    rank_col <- active_tax_rank()
 
     occ_all2 <- occ_all %>%
       dplyr::mutate(
@@ -5699,6 +5798,20 @@ const obs = new MutationObserver(() => {
     )
   })
 
+  p_with_stars <- function(p) {
+    if (is.null(p) || length(p) == 0 || is.na(p)) return(NA_character_)
+
+    star_lab <- dplyr::case_when(
+      p <= 0.001 ~ "***",
+      p <= 0.01  ~ "**",
+      p <= 0.05  ~ "*",
+      p <= 0.1   ~ ".",
+      TRUE       ~ ""
+    )
+
+    paste0(signif(p, 3), ifelse(star_lab == "", "", paste0(" ", star_lab)))
+  }
+
   output$beta_stats_text <- renderText({
     if (!is.null(beta_overlap_warning())) {
       return("")
@@ -5718,11 +5831,11 @@ const obs = new MutationObserver(() => {
       ", R2 = ",
       round(per_row$R2[1], 3),
       ", p = ",
-      signif(per_row$`Pr(>F)`[1], 3),
+      p_with_stars(per_row$`Pr(>F)`[1]),
       " | ANOSIM: R = ",
       round(st$anosim$statistic, 3),
       ", p = ",
-      signif(st$anosim$signif, 3)
+      p_with_stars(st$anosim$signif)
     )
   })
 
@@ -5760,7 +5873,7 @@ const obs = new MutationObserver(() => {
       "Beta dispersion: F = ",
       round(bd$anova$`F value`[1], 3),
       ", p = ",
-      signif(bd$anova$`Pr(>F)`[1], 3)
+      p_with_stars(bd$anova$`Pr(>F)`[1])
     )
   })
 
@@ -5804,6 +5917,18 @@ const obs = new MutationObserver(() => {
       simpson    = vegan::diversity(mat, index = "simpson"),
       invsimpson = vegan::diversity(mat, index = "invsimpson"),
       ace        = vegan::estimateR(mat)["S.ACE", ],
+      pielou = {
+        shannon_vals <- vegan::diversity(mat, index = "shannon")
+        richness_vals <- vegan::specnumber(mat)
+
+        evenness <- ifelse(
+          richness_vals > 1,
+          shannon_vals / log(richness_vals),
+          NA_real_
+        )
+
+        evenness
+      },
       vegan::specnumber(mat)
     )
 
@@ -5871,7 +5996,7 @@ const obs = new MutationObserver(() => {
         apply_species_filters() %>%
         apply_diversity_dropdown_filters(div_filters())
 
-      rank_col <- div_filters()$tax_rank
+      rank_col <- active_tax_rank()
       metric   <- input$alpha_metric %||% "observed"
 
       alpha_poly_list <- lapply(seq_len(nrow(polys)), function(i) {
@@ -5979,7 +6104,7 @@ const obs = new MutationObserver(() => {
   })
 
   #-----------------------------------------------------------------------------
-  alpha_stats <- reactive({  #NEW
+  alpha_stats <- reactive({
     if (!is.null(alpha_overlap_warning())) {
       return(NULL)
     }
@@ -5987,20 +6112,43 @@ const obs = new MutationObserver(() => {
     alpha <- alpha_boxplot_occ_all()
 
     shiny::validate(
-      shiny::need(nrow(alpha) > 0, "No alpha diversity data available."),
-      shiny::need(dplyr::n_distinct(alpha$group_label) > 1, "At least 2 polygons are needed for alpha comparison.")
+      shiny::need(nrow(alpha) > 0, "No alpha diversity data available.")
     )
 
     alpha <- alpha %>%
       dplyr::filter(!is.na(alpha_val), !is.na(group_label), !is.na(sample_id)) %>%
       dplyr::mutate(group_label = droplevels(as.factor(group_label)))
 
-    kw <- kruskal.test(alpha_val ~ group_label, data = alpha)
+    n_groups <- dplyr::n_distinct(alpha$group_label)
+
+    shiny::validate(
+      shiny::need(n_groups > 1, "At least 2 polygons are needed for alpha comparison.")
+    )
+
+    if (n_groups == 2) {
+      overall <- wilcox.test(alpha_val ~ group_label, data = alpha, exact = FALSE)
+
+      pairwise_df <- data.frame(
+        group1 = levels(alpha$group_label)[1],
+        group2 = levels(alpha$group_label)[2],
+        p_adj  = overall$p.value,
+        stringsAsFactors = FALSE
+      )
+
+      return(list(
+        method   = "wilcox",
+        overall  = overall,
+        pairwise = pairwise_df
+      ))
+    }
+
+    overall <- kruskal.test(alpha_val ~ group_label, data = alpha)
 
     pairwise <- pairwise.wilcox.test(
       x = alpha$alpha_val,
       g = alpha$group_label,
-      p.adjust.method = "BH"
+      p.adjust.method = "BH",
+      exact = FALSE
     )
 
     pairwise_df <- as.data.frame(as.table(pairwise$p.value), stringsAsFactors = FALSE)
@@ -6011,10 +6159,60 @@ const obs = new MutationObserver(() => {
       dplyr::arrange(p_adj)
 
     list(
-      overall = kw,
+      method   = "kruskal",
+      overall  = overall,
       pairwise = pairwise_df
     )
   })
+
+  output$alpha_summary_tbl <- DT::renderDT({
+    alpha <- alpha_boxplot_occ_all()
+
+    shiny::validate(
+      shiny::need(nrow(alpha) > 0, "No alpha diversity data available.")
+    )
+
+    out <- alpha %>%
+      dplyr::filter(!is.na(group_label), !is.na(alpha_val)) %>%
+      dplyr::group_by(group_label) %>%
+      dplyr::summarise(
+        n_samples = dplyr::n(),
+        mean = round(mean(alpha_val, na.rm = TRUE), 2),
+        median = round(stats::median(alpha_val, na.rm = TRUE), 2),
+        sd = round(stats::sd(alpha_val, na.rm = TRUE), 2),
+        min = round(min(alpha_val, na.rm = TRUE), 2),
+        q1 = round(as.numeric(stats::quantile(alpha_val, 0.25, na.rm = TRUE, type = 7)), 2),
+        q3 = round(as.numeric(stats::quantile(alpha_val, 0.75, na.rm = TRUE, type = 7)), 2),
+        max = round(max(alpha_val, na.rm = TRUE), 2),
+        .groups = "drop"
+      ) %>%
+      dplyr::rename(Polygon = group_label)
+
+    DT::datatable(
+      out,
+      rownames = FALSE,
+      colnames = c(
+        "Polygon",
+        "Number of Samples",
+        "Mean",
+        "Median",
+        "Standard Deviation",
+        "Minimum",
+        "Q1",
+        "Q3",
+        "Maximum"
+      ),
+      options = list(
+        pageLength = 10,
+        dom = "tip",
+        scrollX = TRUE,
+        autoWidth = FALSE,
+        scrollCollapse = TRUE
+      ),
+      class = "nowrap"
+    )
+  })
+
 
   output$alpha_stats_text <- renderText({
     if (!is.null(alpha_overlap_warning())) {
@@ -6026,32 +6224,153 @@ const obs = new MutationObserver(() => {
       return("")
     }
 
+    if (st$method == "wilcox") {
+      return(
+        paste0(
+          "Wilcoxon rank-sum test: W = ",
+          round(unname(st$overall$statistic), 3),
+          ", p = ",
+          p_with_stars(st$overall$p.value)
+        )
+      )
+    }
+
     paste0(
       "Kruskal-Wallis: chi-squared = ",
       round(unname(st$overall$statistic), 3),
       ", df = ",
       unname(st$overall$parameter),
       ", p = ",
-      signif(st$overall$p.value, 3)
+      p_with_stars(st$overall$p.value)
     )
   })
 
   output$alpha_pairwise_tbl <- DT::renderDT({
-    if (!is.null(alpha_overlap_warning())) {
-      return(NULL)
+    st <- alpha_stats()
+
+    shiny::validate(
+      shiny::need(!is.null(st), "")
+    )
+
+    df <- st$pairwise
+
+    shiny::validate(
+      shiny::need(nrow(df) > 0, "No pairwise comparisons available.")
+    )
+
+    df <- df %>%
+      dplyr::mutate(
+        stars = dplyr::case_when(
+          p_adj <= 0.001 ~ "***",
+          p_adj <= 0.01  ~ "**",
+          p_adj <= 0.05  ~ "*",
+          p_adj <= 0.1   ~ ".",
+          TRUE           ~ ""
+        )
+      )
+
+    p_label <- if (st$method == "wilcox") {
+      "p-value"
+    } else {
+      "Adjusted p-value"
     }
 
-    st <- alpha_stats()
-    if (is.null(st)) {
-      return(NULL)
-    }
+    df <- df %>%
+      dplyr::mutate(
+        p_display = ifelse(
+          stars == "",
+          as.character(signif(p_adj, 3)),
+          paste0(signif(p_adj, 3), " ", stars)
+        )
+      ) %>%
+      dplyr::select(group1, group2, p_display)
 
     DT::datatable(
-      st$pairwise,
+      df,
       rownames = FALSE,
-      colnames = c("Polygon 1", "Polygon 2", "Adjusted p-value"),
-      options = list(pageLength = 10, dom = "tip")
+      colnames = c("Polygon 1", "Polygon 2", p_label),
+      options = list(
+        pageLength = 10,
+        dom = "tip",
+        scrollX = TRUE
+      )
     )
+  })
+
+  make_cld_letters <- function(alpha_df, st, alpha = 0.05) {
+    groups <- levels(droplevels(as.factor(alpha_df$group_label)))
+
+    # If only 1 group, return that group with "A"
+    if (length(groups) == 1) {
+      return(data.frame(
+        group_label = groups,
+        letters = "A",
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    # Start with matrix of "not significant"
+    pmat <- matrix(
+      1,
+      nrow = length(groups),
+      ncol = length(groups),
+      dimnames = list(groups, groups)
+    )
+
+    diag(pmat) <- 1
+
+    # Fill matrix from pairwise results
+    if (!is.null(st$pairwise) && nrow(st$pairwise) > 0) {
+      for (i in seq_len(nrow(st$pairwise))) {
+        g1 <- as.character(st$pairwise$group1[i])
+        g2 <- as.character(st$pairwise$group2[i])
+        p  <- as.numeric(st$pairwise$p_adj[i])
+
+        if (!is.na(g1) && !is.na(g2) && g1 %in% groups && g2 %in% groups) {
+          pmat[g1, g2] <- p
+          pmat[g2, g1] <- p
+        }
+      }
+    }
+
+    # multcompLetters expects logical matrix:
+    # TRUE means groups are NOT significantly different
+    letter_obj <- multcompView::multcompLetters(pmat < alpha)
+
+    data.frame(
+      group_label = names(letter_obj$Letters),
+      letters = unname(letter_obj$Letters),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  alpha_plot_annotations <- reactive({
+    st <- alpha_stats()
+    alpha <- alpha_boxplot_occ_all()
+
+    req(st, alpha)
+    req(nrow(alpha) > 0)
+
+    alpha2 <- alpha %>%
+      dplyr::filter(!is.na(group_label), !is.na(alpha_val)) %>%
+      dplyr::mutate(group_label = droplevels(as.factor(group_label)))
+
+    cld <- make_cld_letters(alpha2, st, alpha = 0.05)
+
+    y_pos <- alpha2 %>%
+      dplyr::group_by(group_label) %>%
+      dplyr::summarise(
+        y = max(alpha_val, na.rm = TRUE) * 1.08,
+        .groups = "drop"
+      ) %>%
+      dplyr::mutate(group_label = as.character(group_label))
+
+    cld %>%
+      dplyr::mutate(group_label = as.character(group_label)) %>%
+      dplyr::left_join(y_pos, by = "group_label") %>%
+      dplyr::mutate(
+        x = group_label
+      )
   })
 
   #----------------------------------------------------------------
@@ -6060,11 +6379,21 @@ const obs = new MutationObserver(() => {
   color_vec <- c("#046c9a", "#5BBCD6", "#ABDDDE", "#446455", "#00A08A","#Fdd262")
 
   output$alpha_boxplot <- plotly::renderPlotly({
+
     alpha <- alpha_boxplot_occ_all()
+    ann   <- alpha_plot_annotations()
 
     shiny::validate(
       shiny::need(nrow(alpha) > 0, "No samples available for the current selection/year.")
     )
+
+    y_max <- max(alpha$alpha_val, na.rm = TRUE)
+    ann_top <- if (!is.null(ann) && nrow(ann) > 0) {
+      max(ann$y, na.rm = TRUE)
+    } else {
+      y_max * 1.10
+    }
+    y_upper <- max(y_max * 1.15, ann_top * 1.10)
 
     metric_label <- switch(
       input$alpha_metric %||% "observed",
@@ -6073,10 +6402,11 @@ const obs = new MutationObserver(() => {
       simpson    = "Simpson diversity",
       invsimpson = "Inverse Simpson diversity",
       ace        = "ACE estimated richness",
+      pielou     = "Pielou's evenness",
       "Alpha diversity"
     )
 
-    rank_label <- tools::toTitleCase(gsub("_", " ", div_filters()$tax_rank))
+    rank_label <- tools::toTitleCase(gsub("_", " ", active_tax_rank()))
     gene_label <- div_filters()$target_gene
     primer_label <- div_filters()$primers
 
@@ -6096,7 +6426,6 @@ const obs = new MutationObserver(() => {
       metric_label, " at ", rank_label, " level",
       gene_suffix, primer_suffix
     )
-
 
     plotly::plot_ly(
       data = alpha,
@@ -6131,7 +6460,7 @@ const obs = new MutationObserver(() => {
           showgrid = FALSE,
           showline = TRUE,
           linecolor = "black",
-          range = c(0, max(alpha$alpha_val, na.rm = TRUE) * 1.05),
+          range = c(0, y_upper),
           fixedrange = FALSE
         ),
         legend = list(
@@ -6141,9 +6470,47 @@ const obs = new MutationObserver(() => {
           itemdoubleclick = "toggleothers"
         ),
         margin = list(l = 80, r = 30, t = 40, b = 120),
-        showlegend = TRUE
+        showlegend = TRUE,
+        annotations = if (!is.null(ann) && nrow(ann) > 0) {
+          lapply(seq_len(nrow(ann)), function(i) {
+            list(
+              x = ann$x[i],
+              y = ann$y[i],
+              xref = "x",
+              yref = "y",
+              text = ann$letters[i],
+              showarrow = FALSE,
+              xanchor = "center",
+              yanchor = "bottom",
+              font = list(size = 18, color = "black")
+            )
+          })
+        } else {
+          list()
+        }
       )
   })
+
+  make_ellipse <- function(df, conf = 0.95, npoints = 100) {
+    if (nrow(df) < 3) return(NULL)
+
+    center <- c(mean(df$PC1, na.rm = TRUE), mean(df$PC2, na.rm = TRUE))
+    cov_mat <- stats::cov(df[, c("PC1", "PC2")], use = "complete.obs")
+
+    if (any(!is.finite(cov_mat)) || det(cov_mat) <= 0) return(NULL)
+
+    angles <- seq(0, 2 * pi, length.out = npoints)
+    circle <- cbind(cos(angles), sin(angles))
+
+    radius <- sqrt(stats::qchisq(conf, df = 2))
+    ellipse <- t(center + radius * t(circle %*% chol(cov_mat)))
+
+    out <- data.frame(
+      PC1 = ellipse[, 1],
+      PC2 = ellipse[, 2]
+    )
+    out
+  }
 
   #Beta diversity *NEW
   output$beta_pcoa <- plotly::renderPlotly({
@@ -6165,8 +6532,10 @@ const obs = new MutationObserver(() => {
     beta_method <- input$beta_metric %||% "bray"
 
     shiny::validate(
-      shiny::need(all(is.finite(as.vector(d))),
-                  "Distance matrix contains non-finite values for the current filters/metric.")
+      shiny::need(
+        all(is.finite(as.vector(d))),
+        "Distance matrix contains non-finite values for the current filters/metric."
+      )
     )
 
     ord <- tryCatch(
@@ -6180,7 +6549,6 @@ const obs = new MutationObserver(() => {
     )
 
     shiny::validate(
-      shiny::need(!is.null(sample_ids), "Sample names are missing from the beta diversity matrix."),
       shiny::need(length(sample_ids) == nrow(ord$points), "Mismatch between sample names and ordination points.")
     )
 
@@ -6219,7 +6587,7 @@ const obs = new MutationObserver(() => {
       beta_method
     )
 
-    rank_label <- tools::toTitleCase(gsub("_", " ", div_filters()$tax_rank))
+    rank_label <- tools::toTitleCase(gsub("_", " ", active_tax_rank()))
     gene_label <- div_filters()$target_gene
     primer_label <- div_filters()$primers
 
@@ -6252,17 +6620,104 @@ const obs = new MutationObserver(() => {
         )
       )
 
-    plotly::plot_ly(
-      data = plot_df,
-      x = ~PC1,
-      y = ~PC2,
-      type = "scatter",
-      mode = "markers",
-      color = ~group_label,
-      colors = color_vec,
-      text = ~hover_text,
-      hoverinfo = "text"
-    ) %>%
+    make_ellipse <- function(df, conf = 0.95, npoints = 100) {
+      if (nrow(df) < 3) return(NULL)
+
+      xy <- df[, c("PC1", "PC2"), drop = FALSE]
+      xy <- xy[stats::complete.cases(xy), , drop = FALSE]
+
+      if (nrow(xy) < 3) return(NULL)
+
+      cov_mat <- tryCatch(stats::cov(xy), error = function(e) NULL)
+      if (is.null(cov_mat)) return(NULL)
+      if (any(!is.finite(cov_mat))) return(NULL)
+      if (det(cov_mat) <= 0) return(NULL)
+
+      center <- c(mean(xy$PC1), mean(xy$PC2))
+      angles <- seq(0, 2 * pi, length.out = npoints)
+      unit_circle <- cbind(cos(angles), sin(angles))
+
+      radius <- sqrt(stats::qchisq(conf, df = 2))
+
+      chol_decomp <- tryCatch(chol(cov_mat), error = function(e) NULL)
+      if (is.null(chol_decomp)) return(NULL)
+
+      ellipse_coords <- radius * unit_circle %*% chol_decomp
+      ellipse_coords <- sweep(ellipse_coords, 2, center, FUN = "+")
+
+      data.frame(
+        PC1 = ellipse_coords[, 1],
+        PC2 = ellipse_coords[, 2],
+        stringsAsFactors = FALSE
+      )
+    }
+
+    group_levels <- unique(plot_df$group_label)
+
+    if (!is.null(names(color_vec)) && all(group_levels %in% names(color_vec))) {
+      pal <- color_vec[group_levels]
+    } else {
+      pal <- rep(color_vec, length.out = length(group_levels))
+      names(pal) <- group_levels
+    }
+
+    ellipse_list <- lapply(group_levels, function(grp) {
+      df_grp <- plot_df %>% dplyr::filter(group_label == grp)
+      ell <- make_ellipse(df_grp, conf = 0.95, npoints = 100)
+      if (is.null(ell)) return(NULL)
+      ell$group_label <- grp
+      ell
+    })
+    names(ellipse_list) <- group_levels
+
+    p <- plotly::plot_ly()
+
+    for (grp in group_levels) {
+      df_grp <- plot_df %>% dplyr::filter(group_label == grp)
+      ell_df <- ellipse_list[[grp]]
+      grp_col <- unname(pal[grp])
+
+      if (!is.null(ell_df) && nrow(ell_df) > 0) {
+        p <- p %>%
+          plotly::add_trace(
+            data = ell_df,
+            x = ~PC1,
+            y = ~PC2,
+            type = "scatter",
+            mode = "lines",
+            fill = "toself",
+            fillcolor = grp_col,
+            line = list(width = 1, color = grp_col),
+            opacity = 0.20,
+            hoverinfo = "skip",
+            legendgroup = grp,
+            name = grp,
+            showlegend = FALSE,
+            inherit = FALSE
+          )
+      }
+
+      p <- p %>%
+        plotly::add_trace(
+          data = df_grp,
+          x = ~PC1,
+          y = ~PC2,
+          type = "scatter",
+          mode = "markers",
+          marker = list(
+            size = 9,
+            color = grp_col
+          ),
+          text = ~hover_text,
+          hoverinfo = "text",
+          legendgroup = grp,
+          name = grp,
+          showlegend = TRUE,
+          inherit = FALSE
+        )
+    }
+
+    p %>%
       plotly::layout(
         title = list(
           text = plot_title,
@@ -6292,14 +6747,13 @@ const obs = new MutationObserver(() => {
         legend = list(
           title = list(text = "Polygon"),
           font = list(size = 14),
-          itemclick = "toggle",
+          groupclick = "togglegroup",
           itemdoubleclick = "toggleothers"
         ),
         margin = list(l = 80, r = 30, t = 70, b = 80),
         showlegend = TRUE
       )
   })
-
 
   #Krona plot
   output$tax_krona <- taxplore::renderKronaChart({
@@ -6730,5 +7184,3 @@ shinyApp(ui, server)
 ###Wishlist items
 #add polygons for other marine conservation regions in the Atlantic
 #add NMDS plot for community structure - see code Nick provides - year, season, depth
-
-#draft skeleton of paper with a sentence or two of why each was done
