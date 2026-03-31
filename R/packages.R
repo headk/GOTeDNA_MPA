@@ -19,10 +19,18 @@ library(readr)
 library(robis)
 library(bslib)
 library(shiny)
+
+#install.packages("BiocManager") *NEW
+#BiocManager::install("phyloseq")
 library(phyloseq)
+
+#install.packages("remotes")
+#remotes::install_github("markschl/taxplore")
 library(taxplore)  #Here is the link for taxplore tutorial in Shiny: https://markschl.github.io/taxplore/articles/tutorial.html#shiny-apps
+
 library(plotly)
 library(worrms)
 library(vegan)
 library(forcats)
 library(shinycssloaders)
+library(multcompView)
