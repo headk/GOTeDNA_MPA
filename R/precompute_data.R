@@ -1892,7 +1892,7 @@ table.dataTable.nowrap th {
   --floating-top: 10px;
   --legend-w: 190px;
   --monthly-w: 350px;
-  --monthly-plot-h: 320px;
+  --monthly-plot-h: 350px;
   --layers-minw: 220px;
   --filter-btn-h: 70px;
   --filter-btn-short-h: 40px;
@@ -2305,7 +2305,7 @@ $(function(){
         class = "leaflet-control",
         div(id = "monthly_plot_title", "Monthly Number of Samples Collected"),
         div(id = "monthly_plot_subtitle", textOutput("monthly_plot_subtitle", inline = TRUE)),
-        plotOutput("monthly_circular_plot", height = "220px", width = "100%")
+        plotOutput("monthly_circular_plot", height = "250px", width = "100%")
       ),
 
       absolutePanel(
@@ -6374,9 +6374,37 @@ const obs = new MutationObserver(() => {
   })
 
   #----------------------------------------------------------------
+  get_group_palette <- function(group_levels) {
+    group_levels <- unique(as.character(group_levels))
+
+    base_cols <- c(
+      "Eastern Shore Islands AOI" = "#046c9a",
+      "St. Anns Bank Marine Protected Area" = "#5BBCD6",
+      "Musquash Estuary Marine Protected Area" = "#ABDDDE",
+      "Fundian Channel–Browns Bank AOI" = "#446455",
+      "Gully Marine Protected Area" = "#FDD262"
+    )
+
+    pal <- setNames(rep(NA_character_, length(group_levels)), group_levels)
+
+    known <- intersect(group_levels, names(base_cols))
+    pal[known] <- base_cols[known]
+
+    unknown <- setdiff(group_levels, names(base_cols))
+
+    if (length(unknown) > 0) {
+      fallback_cols <- grDevices::hcl.colors(
+        n = length(unknown),
+        palette = "Temps"
+      )
+      pal[unknown] <- fallback_cols
+    }
+
+    pal
+  }
 
   # --- Alpha diversity boxplot (Plotly) ---
-  color_vec <- c("#046c9a", "#5BBCD6", "#ABDDDE", "#446455", "#00A08A","#Fdd262")
+  #color_vec <- c("#046c9a", "#5BBCD6", "#ABDDDE", "#446455", "#00A08A","#Fdd262")
 
   output$alpha_boxplot <- plotly::renderPlotly({
 
@@ -6406,8 +6434,8 @@ const obs = new MutationObserver(() => {
       "Alpha diversity"
     )
 
-    rank_label <- tools::toTitleCase(gsub("_", " ", active_tax_rank()))
-    gene_label <- div_filters()$target_gene
+    rank_label   <- tools::toTitleCase(gsub("_", " ", active_tax_rank()))
+    gene_label   <- div_filters()$target_gene
     primer_label <- div_filters()$primers
 
     gene_suffix <- if (length(gene_label) > 0) {
@@ -6427,23 +6455,75 @@ const obs = new MutationObserver(() => {
       gene_suffix, primer_suffix
     )
 
-    plotly::plot_ly(
-      data = alpha,
-      x = ~group_label,
-      y = ~alpha_val,
-      type = "box",
-      color = ~group_label,
-      colors = color_vec,
-      boxpoints = "all",
-      jitter = 0.3,
-      pointpos = 0,
-      hovertemplate = paste(
-        "<b>Sample:</b> %{customdata[0]}<br>",
-        "<b>Group:</b> %{x}<br>",
-        "<b>", metric_label, ":</b> %{y}<extra></extra>"
-      ),
-      customdata = ~cbind(samp_name)
-    ) %>%
+    group_levels <- unique(as.character(alpha$group_label))
+    alpha$group_label <- factor(alpha$group_label, levels = group_levels)
+
+    pal <- get_group_palette(group_levels)
+
+    if (!is.null(ann) && nrow(ann) > 0) {
+      ann <- ann %>%
+        dplyr::mutate(
+          x = as.character(x),
+          group_label = factor(x, levels = group_levels)
+        )
+    }
+
+    p <- plotly::plot_ly()
+
+    for (grp in group_levels) {
+      df_grp <- alpha[as.character(alpha$group_label) == grp, , drop = FALSE]
+      grp_col <- unname(pal[grp])
+      if (is.na(grp_col) || is.null(grp_col)) grp_col <- "#333333"
+
+      p <- p %>%
+        plotly::add_trace(
+          data = df_grp,
+          x = ~group_label,
+          y = ~alpha_val,
+          type = "box",
+          name = grp,
+          legendgroup = grp,
+          showlegend = TRUE,
+          marker = list(
+            color = grp_col,
+            opacity = 0.8
+          ),
+          line = list(color = grp_col),
+          fillcolor = grDevices::adjustcolor(grp_col, alpha.f = 0.35),
+          boxpoints = "all",
+          jitter = 0.3,
+          pointpos = 0,
+          customdata = ~samp_name,
+          hovertemplate = paste(
+            "<b>Sample:</b> %{customdata}<br>",
+            "<b>Group:</b> %{x}<br>",
+            "<b>", metric_label, ":</b> %{y}<extra></extra>"
+          ),
+          inherit = FALSE
+        )
+
+      if (!is.null(ann) && nrow(ann) > 0) {
+        ann_grp <- ann[ann$x == grp, , drop = FALSE]
+
+        if (nrow(ann_grp) > 0) {
+          p <- p %>%
+            plotly::add_text(
+              data = ann_grp,
+              x = ~group_label,
+              y = ~y,
+              text = ~letters,
+              textposition = "top center",
+              textfont = list(size = 18, color = "black"),
+              showlegend = FALSE,
+              legendgroup = grp,
+              hoverinfo = "skip",
+              inherit = FALSE
+            )
+        }
+      }
+    }
+
+    p %>%
       plotly::layout(
         font = list(size = 18),
         xaxis = list(
@@ -6467,27 +6547,11 @@ const obs = new MutationObserver(() => {
           title = list(text = "Polygon"),
           font = list(size = 14),
           itemclick = "toggle",
-          itemdoubleclick = "toggleothers"
+          itemdoubleclick = "toggleothers",
+          groupclick = "togglegroup"
         ),
         margin = list(l = 80, r = 30, t = 40, b = 120),
-        showlegend = TRUE,
-        annotations = if (!is.null(ann) && nrow(ann) > 0) {
-          lapply(seq_len(nrow(ann)), function(i) {
-            list(
-              x = ann$x[i],
-              y = ann$y[i],
-              xref = "x",
-              yref = "y",
-              text = ann$letters[i],
-              showarrow = FALSE,
-              xanchor = "center",
-              yanchor = "bottom",
-              font = list(size = 18, color = "black")
-            )
-          })
-        } else {
-          list()
-        }
+        showlegend = TRUE
       )
   })
 
@@ -6587,8 +6651,8 @@ const obs = new MutationObserver(() => {
       beta_method
     )
 
-    rank_label <- tools::toTitleCase(gsub("_", " ", active_tax_rank()))
-    gene_label <- div_filters()$target_gene
+    rank_label   <- tools::toTitleCase(gsub("_", " ", active_tax_rank()))
+    gene_label   <- div_filters()$target_gene
     primer_label <- div_filters()$primers
 
     gene_suffix <- if (length(gene_label) > 0) {
@@ -6652,14 +6716,8 @@ const obs = new MutationObserver(() => {
       )
     }
 
-    group_levels <- unique(plot_df$group_label)
-
-    if (!is.null(names(color_vec)) && all(group_levels %in% names(color_vec))) {
-      pal <- color_vec[group_levels]
-    } else {
-      pal <- rep(color_vec, length.out = length(group_levels))
-      names(pal) <- group_levels
-    }
+    group_levels <- unique(as.character(plot_df$group_label))
+    pal <- get_group_palette(group_levels)
 
     ellipse_list <- lapply(group_levels, function(grp) {
       df_grp <- plot_df %>% dplyr::filter(group_label == grp)
@@ -6676,6 +6734,7 @@ const obs = new MutationObserver(() => {
       df_grp <- plot_df %>% dplyr::filter(group_label == grp)
       ell_df <- ellipse_list[[grp]]
       grp_col <- unname(pal[grp])
+      if (is.na(grp_col) || is.null(grp_col)) grp_col <- "#333333"
 
       if (!is.null(ell_df) && nrow(ell_df) > 0) {
         p <- p %>%
@@ -6686,9 +6745,9 @@ const obs = new MutationObserver(() => {
             type = "scatter",
             mode = "lines",
             fill = "toself",
-            fillcolor = grp_col,
+            fillcolor = grDevices::adjustcolor(grp_col, alpha.f = 0.20),
             line = list(width = 1, color = grp_col),
-            opacity = 0.20,
+            opacity = 1,
             hoverinfo = "skip",
             legendgroup = grp,
             name = grp,
@@ -7184,3 +7243,5 @@ shinyApp(ui, server)
 ###Wishlist items
 #add polygons for other marine conservation regions in the Atlantic
 #add NMDS plot for community structure - see code Nick provides - year, season, depth
+
+#draft skeleton of paper with a sentence or two of why each was done
